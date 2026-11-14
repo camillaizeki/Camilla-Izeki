@@ -43,6 +43,8 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   let r = await chamar('conta/criar', 'POST', { nome: 'Rafael Lima', email: 'Rafa@Exemplo.com', senha: 'senha-forte-1', slug: 'rafa' });
   assert.equal(r.status, 200);
   assert.ok(cookie.startsWith('sessao='));
+  const codigo = r.corpo.codigo;
+  assert.match(codigo, /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{4}$/);
   assert.equal((await chamar('conta/criar', 'POST', { nome: 'Outro', email: 'rafa@exemplo.com', senha: 'senha-forte-1', slug: 'outro' })).status, 400);
   assert.equal((await chamar('conta/criar', 'POST', { nome: 'Outro', email: 'o@exemplo.com', senha: 'senha-forte-1', slug: 'api' })).status, 400);
 
@@ -51,6 +53,23 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.equal((await chamar('painel')).status, 401);
   assert.equal((await chamar('conta/entrar', 'POST', { email: 'rafa@exemplo.com', senha: 'errada-123' })).status, 401);
   assert.equal((await chamar('conta/entrar', 'POST', { email: 'rafa@exemplo.com', senha: 'senha-forte-1' })).status, 200);
+
+  // Esqueci minha senha: código errado não passa; o certo troca a senha e gera outro código
+  await chamar('conta/sair', 'POST', {});
+  assert.equal((await chamar('conta/redefinir', 'POST', { email: 'rafa@exemplo.com', codigo: 'AAAA-AAAA-AAAA', senha: 'senha-nova-22' })).status, 401);
+  assert.equal((await chamar('conta/redefinir', 'POST', { email: 'ninguem@exemplo.com', codigo, senha: 'senha-nova-22' })).status, 401);
+  r = await chamar('conta/redefinir', 'POST', { email: 'rafa@exemplo.com', codigo: codigo.toLowerCase().replaceAll('-', ' '), senha: 'senha-nova-22' });
+  assert.equal(r.status, 200);
+  const codigo2 = r.corpo.codigo;
+  assert.notEqual(codigo2, codigo);
+  assert.equal((await chamar('painel')).status, 200);
+  await chamar('conta/sair', 'POST', {});
+  assert.equal((await chamar('conta/redefinir', 'POST', { email: 'rafa@exemplo.com', codigo, senha: 'senha-outra-33' })).status, 401); // código usado não vale mais
+  assert.equal((await chamar('conta/entrar', 'POST', { email: 'rafa@exemplo.com', senha: 'senha-forte-1' })).status, 401);
+  assert.equal((await chamar('conta/entrar', 'POST', { email: 'rafa@exemplo.com', senha: 'senha-nova-22' })).status, 200);
+  r = await chamar('conta/recuperacao', 'POST', {});
+  assert.notEqual(r.corpo.codigo, codigo2);
+  assert.equal((await chamar('painel')).corpo.personal.temCodigo, true);
 
   // Configura o Pix
   r = await chamar('conta', 'PUT', { nome: 'Rafael Lima', pixTipo: 'celular', pixChave: '(11) 98888-7777', pixNome: 'Rafael Lima', pixCidade: 'São Paulo', valorPadrao: 25000, diaPadrao: 5, tom: 'zoeiro' });

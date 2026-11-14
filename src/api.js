@@ -62,6 +62,24 @@ async function hashSenha(senha, sal) {
   return hex(bits);
 }
 
+// Código de recuperação de senha: 12 caracteres fáceis de ler, no formato XXXX-XXXX-XXXX.
+const LETRAS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+function novoCodigo() {
+  const bytes = crypto.getRandomValues(new Uint8Array(12));
+  const texto = [...bytes].map((b) => LETRAS[b % LETRAS.length]).join('');
+  return texto.slice(0, 4) + '-' + texto.slice(4, 8) + '-' + texto.slice(8);
+}
+
+const limparCodigo = (codigo) => String(codigo || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const hashCodigo = (codigo, personalId) => hashSenha(limparCodigo(codigo), 'recuperacao-' + personalId);
+
+async function trocarCodigo(db, personalId) {
+  const codigo = novoCodigo();
+  await db.prepare('UPDATE personais SET recuperacao_hash = ? WHERE id = ?').bind(await hashCodigo(codigo, personalId), personalId).run();
+  return codigo;
+}
+
 function iguais(a, b) {
   if (a.length !== b.length) return false;
   let dif = 0;
@@ -114,6 +132,7 @@ function personalPublico(p) {
     diaPadrao: p.dia_padrao,
     tom: p.tom,
     temFoto: !!p.foto,
+    temCodigo: !!p.recuperacao_hash,
   };
 }
 
@@ -206,7 +225,34 @@ async function rotear(request, env, partes) {
       .run();
     const id = r.meta.last_row_id;
     await db.batch(FRASES_PADRAO.map((f) => db.prepare("INSERT INTO frases (personal_id, texto, origem) VALUES (?, ?, 'padrao')").bind(id, f)));
-    return json({ ok: true }, 200, { 'set-cookie': await abrirSessao(db, id) });
+    const codigo = await trocarCodigo(db, id);
+    return json({ ok: true, codigo }, 200, { 'set-cookie': await abrirSessao(db, id) });
+  }
+
+  // Esqueci minha senha: e-mail + código de recuperação + senha nova.
+  if (a === 'conta' && b === 'redefinir' && metodo === 'POST') {
+    const d = await corpo(request);
+    const email = String(d.email || '').trim().toLowerCase();
+    const senha = String(d.senha || '');
+    if (senha.length < 8 || senha.length > 100) throw new Falha('A senha nova precisa ter pelo menos 8 caracteres.');
+    const p = await db.prepare('SELECT * FROM personais WHERE email = ?').bind(email).first();
+    const hash = await hashCodigo(d.codigo, p ? p.id : 0);
+    if (!p || !p.recuperacao_hash || !iguais(hash, p.recuperacao_hash)) {
+      throw new Falha('E-mail ou código de recuperação incorretos.', 401);
+    }
+    const sal = aleatorio(16);
+    await db.batch([
+      db.prepare('UPDATE personais SET senha_hash = ?, senha_sal = ? WHERE id = ?').bind(await hashSenha(senha, sal), sal, p.id),
+      db.prepare('DELETE FROM sessoes WHERE personal_id = ?').bind(p.id),
+    ]);
+    // O código usado deixa de valer; a pessoa recebe um novo para guardar.
+    const codigo = await trocarCodigo(db, p.id);
+    return json({ ok: true, codigo }, 200, { 'set-cookie': await abrirSessao(db, p.id) });
+  }
+
+  if (a === 'conta' && b === 'recuperacao' && metodo === 'POST') {
+    const p = await personalLogado(request, db);
+    return json({ codigo: await trocarCodigo(db, p.id) });
   }
 
   if (a === 'conta' && b === 'entrar' && metodo === 'POST') {

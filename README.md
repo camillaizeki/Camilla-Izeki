@@ -40,7 +40,8 @@ npm test                        # roda os testes
 node testes/servidor-local.js   # abre o app em http://localhost:8788
 ```
 
-## Antes de divulgar
+## Recuperação de senha
 
-- Troque o contato em `public/privacidade.html`.
-- Não existe recuperação de senha ainda: quem esquecer precisa de ajuste direto no banco.
+Não há envio de e-mail. Ao criar a conta, o personal recebe um código de recuperação (mostrado uma vez).
+Em "Esqueci minha senha", ele informa e-mail, código e a senha nova. Um novo código pode ser gerado na aba Conta.
+Quem perder a senha e o código precisa de ajuste direto no banco.

@@ -23,8 +23,16 @@
 <p>Não vendemos dados, não enviamos mensagens automáticas e não processamos pagamentos: o Pix vai direto do aluno para o personal.</p>
 <h2>Seus direitos</h2>
 <p>Você pode pedir a correção ou a exclusão dos seus dados a qualquer momento ao seu personal ou pelo contato abaixo.</p>
-<p><strong>Contato:</strong> [E-MAIL DE CONTATO DO RENOVA.AI]</p>
-<p><a href="/">Voltar</a></p></main>
-
+<p><strong>Contato:</strong> <a href="mailto:izekicamilla@gmail.com">izekicamilla@gmail.com</a></p>
+<p><a href="/" id="voltar">Voltar</a></p></main>
+<script>
+// Volta para a tela de onde a pessoa veio; sem histórico, vai para o início.
+document.getElementById("voltar").addEventListener("click", function (e) {
+  if (history.length > 1) {
+    e.preventDefault();
+    history.back();
+  }
+});
+</script>
 </body>
 </html>

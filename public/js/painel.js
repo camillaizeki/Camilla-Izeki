@@ -6,6 +6,7 @@ let aba = 'renovar';
 let erro = '';
 let modoConta = 'entrar';
 let sugestoes = [];
+let codigoNovo = ''; // código de recuperação recém-gerado, mostrado uma vez
 let folha = null; // janela aberta por cima (fila de lembretes ou edição)
 
 const P = () => dados.personal.primeiroNome;
@@ -37,21 +38,32 @@ async function agir(funcao) {
 
 function telaConta() {
   const criando = modoConta === 'criar';
+  const esqueci = modoConta === 'esqueci';
   const enviar = async (evento) => {
     evento.preventDefault();
     const f = evento.target;
     erro = '';
     try {
       if (criando) {
-        await api('conta/criar', 'POST', { nome: f.nome.value, email: f.email.value, senha: f.senha.value, slug: f.slug.value });
+        const r = await api('conta/criar', 'POST', { nome: f.nome.value, email: f.email.value, senha: f.senha.value, slug: f.slug.value });
+        codigoNovo = r.codigo;
+        aba = 'conta';
+      } else if (esqueci) {
+        const r = await api('conta/redefinir', 'POST', { email: f.email.value, codigo: f.codigo.value, senha: f.senha.value });
+        codigoNovo = r.codigo;
       } else {
         await api('conta/entrar', 'POST', { email: f.email.value, senha: f.senha.value });
       }
+      modoConta = 'entrar';
       await carregar();
-      if (criando) aba = 'conta';
     } catch (e) {
       erro = e.message;
     }
+    desenhar();
+  };
+  const mudar = (modo) => () => {
+    modoConta = modo;
+    erro = '';
     desenhar();
   };
 
@@ -65,17 +77,22 @@ function telaConta() {
   });
   slug.addEventListener('input', () => (slug.dataset.editado = '1'));
 
+  const titulo = criando ? 'Criar conta de personal' : esqueci ? 'Criar uma senha nova' : 'Entrar no painel';
+  const rotuloSenha = criando ? 'Crie uma senha (8 caracteres ou mais)' : esqueci ? 'Senha nova (8 caracteres ou mais)' : 'Senha';
+
   return [
     el('div', { class: 'coluna', style: 'margin-top: 6vh' },
       el('p', { class: 'pequeno', style: 'font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase' }, 'Renova.AI'),
-      el('h1', {}, criando ? 'Criar conta de personal' : 'Entrar no painel')
+      el('h1', {}, titulo),
+      esqueci && el('p', { class: 'suave' }, 'Use o código de recuperação que você guardou ao criar a conta.')
     ),
     el('form', { class: 'coluna', style: 'gap: 14px', onsubmit: enviar },
       criando && el('div', { class: 'campo' }, el('label', { for: 'nome' }, 'Seu nome'), nome),
       campo('E-mail', { id: 'email', name: 'email', type: 'email', required: true, autocomplete: 'email' }),
-      campo(criando ? 'Crie uma senha (8 caracteres ou mais)' : 'Senha', {
+      esqueci && campo('Código de recuperação', { id: 'codigo', name: 'codigo', type: 'text', required: true, autocapitalize: 'characters', autocomplete: 'off', placeholder: 'XXXX-XXXX-XXXX' }),
+      campo(rotuloSenha, {
         id: 'senha', name: 'senha', type: 'password', required: true, minlength: '8',
-        autocomplete: criando ? 'new-password' : 'current-password',
+        autocomplete: criando || esqueci ? 'new-password' : 'current-password',
       }),
       criando && el('div', { class: 'campo' },
         el('label', { for: 'slug' }, 'Seu link de convite'),
@@ -83,16 +100,38 @@ function telaConta() {
         el('p', { class: 'pequeno suave' }, `Seus alunos vão acessar ${location.host}/c/seu-link`)
       ),
       erro && el('p', { class: 'erro', role: 'alert' }, erro),
-      el('button', { class: 'botao', type: 'submit' }, criando ? 'Criar conta' : 'Entrar')
+      el('button', { class: 'botao', type: 'submit' }, criando ? 'Criar conta' : esqueci ? 'Salvar senha nova' : 'Entrar')
     ),
+    esqueci && el('p', { class: 'pequeno suave' }, 'Não tem mais o código? ', el('a', { href: '/privacidade' }, 'Fale com a gente'), ' para recuperar o acesso.'),
+    !criando && !esqueci && el('button', { class: 'link', onclick: mudar('esqueci') }, 'Esqueci minha senha'),
+    el('button', { class: 'link', onclick: mudar(criando || esqueci ? 'entrar' : 'criar') }, criando ? 'Já tenho conta' : esqueci ? 'Voltar para entrar' : 'Sou novo por aqui: criar conta'),
+  ];
+}
+
+// Mostra o código de recuperação uma única vez, logo depois de ser gerado.
+function telaCodigo() {
+  const copiarBotao = el('button', {
+    class: 'botao claro',
+    onclick: async () => {
+      copiarBotao.textContent = (await copiar(codigoNovo)) ? 'Código copiado' : 'Anote o código acima';
+    },
+  }, 'Copiar código');
+  return [
+    el('div', { class: 'coluna', style: 'margin-top: 6vh' },
+      el('h1', {}, 'Guarde seu código de recuperação'),
+      el('p', { class: 'suave' }, 'Se você esquecer a senha, é com este código que cria uma nova. Ele aparece só agora: anote ou salve em um lugar seguro.')
+    ),
+    el('div', { class: 'cartao escuro centro' },
+      el('p', { style: "font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 26px; letter-spacing: 0.06em" }, codigoNovo)
+    ),
+    copiarBotao,
     el('button', {
-      class: 'link',
+      class: 'botao fim',
       onclick: () => {
-        modoConta = criando ? 'entrar' : 'criar';
-        erro = '';
+        codigoNovo = '';
         desenhar();
       },
-    }, criando ? 'Já tenho conta' : 'Sou novo por aqui: criar conta'),
+    }, 'Já guardei, continuar'),
   ];
 }
 
@@ -503,6 +542,18 @@ function abaConta() {
       el('p', { class: 'aviso', id: 'salvo', hidden: true }, 'Dados salvos.'),
       botao
     ),
+    el('div', { class: 'cartao' },
+      el('h3', {}, 'Recuperação de senha'),
+      el('p', { class: 'pequeno suave' }, p.temCodigo
+        ? 'Você já tem um código de recuperação. Se perdeu, gere outro: o antigo deixa de valer.'
+        : 'Você ainda não tem um código de recuperação. Gere um e guarde, para o caso de esquecer a senha.'),
+      el('button', {
+        class: 'botao claro menor',
+        onclick: () => agir(async () => {
+          codigoNovo = (await api('conta/recuperacao', 'POST', {})).codigo;
+        }),
+      }, p.temCodigo ? 'Gerar novo código' : 'Gerar código de recuperação')
+    ),
     el('button', { class: 'link', onclick: () => agir(async () => { await api('conta/sair', 'POST', {}); dados = null; }) }, 'Sair da conta'),
   ];
 }
@@ -532,6 +583,7 @@ document.addEventListener('visibilitychange', async () => {
 
 function desenhar() {
   if (!dados) return montar(telaConta());
+  if (codigoNovo) return montar(telaCodigo());
   const novos = dados.alunos.filter((a) => a.status === 'novo').length;
   const abas = [['renovar', 'A renovar'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Arte'], ['conta', 'Conta']];
   const conteudo = { renovar: abaRenovar, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
