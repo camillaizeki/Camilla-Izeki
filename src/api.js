@@ -1,7 +1,7 @@
-// API do Renova.AI. Um único arquivo atende tudo que começa com /api/.
-import { prepararBanco, FRASES_PADRAO } from '../../lib/banco.js';
-import { gerarPix, normalizarChave } from '../../lib/pix.js';
-import { calcular, fases, hojeBR, chaveMes, mesesIniciais, marcoDe } from '../../lib/jornada.js';
+// API do Renova.AI: atende tudo que começa com /api/.
+import { prepararBanco, FRASES_PADRAO } from '../lib/banco.js';
+import { gerarPix, normalizarChave } from '../lib/pix.js';
+import { calcular, fases, hojeBR, chaveMes, mesesIniciais, marcoDe } from '../lib/jornada.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
 const MODELO_PADRAO = '@cf/meta/llama-3.1-8b-instruct';
@@ -498,11 +498,11 @@ async function rotear(request, env, partes) {
   throw new Falha('Caminho não encontrado.', 404);
 }
 
-export async function onRequest({ request, env, params }) {
+// "partes" é o caminho depois de /api/, já separado: /api/alunos/3 vira ['alunos', '3'].
+export async function atenderApi(request, env, partes) {
   try {
     if (!env.DB) throw new Falha('O banco de dados ainda não foi ligado a este app (binding "DB").', 500);
     await prepararBanco(env.DB);
-    const partes = Array.isArray(params.rota) ? params.rota : [params.rota].filter(Boolean);
     return await rotear(request, env, partes);
   } catch (e) {
     if (e instanceof Falha) return json({ erro: e.message }, e.status);

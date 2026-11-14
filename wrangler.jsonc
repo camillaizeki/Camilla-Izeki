@@ -1,0 +1,19 @@
+{
+  // Configuração do app na Cloudflare Workers.
+  // O banco D1 e a IA são criados e ligados sozinhos na publicação.
+  "name": "camilla-izeki",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-11-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  }
+}

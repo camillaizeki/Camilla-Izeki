@@ -3,7 +3,7 @@
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { onRequest } from '../functions/api/[[rota]].js';
+import { atenderApi } from '../src/api.js';
 
 const sqlite = new DatabaseSync(':memory:');
 const preparar = (sql, valores = []) => ({
@@ -27,7 +27,7 @@ http
         for await (const p of req) partes.push(p);
         const corpo = Buffer.concat(partes);
         const request = new Request(url, { method: req.method, headers: req.headers, body: corpo.length ? corpo : undefined });
-        const r = await onRequest({ request, env, params: { rota: url.pathname.slice(5).split('/') } });
+        const r = await atenderApi(request, env, url.pathname.slice(5).split('/'));
         res.writeHead(r.status, Object.fromEntries(r.headers));
         return res.end(Buffer.from(await r.arrayBuffer()));
       }

@@ -16,26 +16,18 @@ Não há provedor de pagamento nem envio automático de mensagens: o custo de op
 
 ## Publicar na Cloudflare (gratuito)
 
-Os nomes dos menus podem variar um pouco no painel da Cloudflare.
+O app roda como um **Worker** conectado a este repositório do GitHub.
+O arquivo `wrangler.jsonc` já declara tudo: a pasta `public/`, o banco D1 (`DB`) e a IA (`AI`).
+Na publicação, a Cloudflare cria o banco e liga a IA sozinha, e as tabelas são criadas no primeiro acesso.
 
-1. **Criar o site:** em *Workers & Pages*, crie um projeto **Pages** conectado a este repositório do GitHub.
-   - Framework: nenhum
-   - Comando de build: deixe vazio
-   - Diretório de saída: `public`
-2. **Criar o banco:** em *Storage & Databases > D1*, crie um banco chamado `renova-ai`.
-3. **Ligar o banco e a IA ao site:** no projeto Pages, em *Settings > Bindings*, adicione:
-   - um binding **D1 database** com o nome `DB`, apontando para o banco `renova-ai`;
-   - um binding **Workers AI** com o nome `AI`.
-4. **Publicar de novo:** em *Deployments*, refaça a última publicação para os bindings valerem.
-
-As tabelas do banco são criadas sozinhas no primeiro acesso. Depois disso, cada alteração enviada ao GitHub é publicada automaticamente.
+Cada alteração enviada ao GitHub é publicada automaticamente.
 
 Opcional: a variável `AI_MODEL` troca o modelo de IA (o padrão é `@cf/meta/llama-3.1-8b-instruct`).
 
 ## Estrutura
 
 - `public/`: telas (convite, aluno, painel) em HTML, CSS e JavaScript puro, sem etapa de build.
-- `functions/`: servidor (Cloudflare Pages Functions). A API fica em `functions/api/[[rota]].js`.
+- `src/`: servidor (Cloudflare Workers). A entrada é `src/worker.js` e a API fica em `src/api.js`.
 - `lib/`: regras da jornada (meses, selos, sequência), geração do Pix e estrutura do banco.
 - `testes/`: testes automáticos e um servidor local com banco em memória.
 

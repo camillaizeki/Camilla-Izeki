@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { onRequest } from '../functions/api/[[rota]].js';
+import { atenderApi } from '../src/api.js';
 import { crc16 } from '../lib/pix.js';
 
 function bancoFalso() {
@@ -28,7 +28,7 @@ async function chamar(caminho, metodo = 'GET', dados, comCookie = true) {
     headers: { 'content-type': 'application/json', ...(comCookie && cookie ? { cookie } : {}) },
     body: dados ? JSON.stringify(dados) : undefined,
   });
-  const resposta = await onRequest({ request, env, params: { rota: caminho.split('/') } });
+  const resposta = await atenderApi(request, env, caminho.split('/'));
   const definido = resposta.headers.get('set-cookie');
   if (definido) cookie = definido.split(';')[0];
   const tipo = resposta.headers.get('content-type') || '';
@@ -142,4 +142,25 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   // Excluir aluno
   assert.equal((await chamar('alunos/' + ana.id, 'DELETE')).status, 200);
   assert.equal((await chamar('aluno/' + token, 'GET', null, false)).status, 404);
+});
+
+test('entrada do Worker encaminha API, links bonitos e arquivos', async () => {
+  const { default: worker } = await import('../src/worker.js');
+  const pedidos = [];
+  const ambiente = {
+    ...env,
+    ASSETS: {
+      fetch: async (req) => {
+        pedidos.push(new URL(req.url).pathname);
+        return new Response('arquivo');
+      },
+    },
+  };
+  const ir = (caminho) => worker.fetch(new Request('https://teste.local' + caminho), ambiente);
+  assert.equal((await ir('/api/painel')).status, 401);
+  await ir('/c/rafa');
+  await ir('/a/abc123');
+  await ir('/painel');
+  await ir('/estilo.css');
+  assert.deepEqual(pedidos, ['/convite', '/aluno', '/painel', '/estilo.css']);
 });
