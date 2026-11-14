@@ -4,6 +4,8 @@
   "name": "renova-ai",
   "main": "src/worker.js",
   "compatibility_date": "2026-11-01",
+  // Mantém variáveis e segredos criados no painel (como ADMIN_KEY) a cada publicação.
+  "keep_vars": true,
   "assets": {
     "directory": "./public",
     "binding": "ASSETS"

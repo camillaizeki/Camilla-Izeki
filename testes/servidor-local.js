@@ -14,6 +14,7 @@ const preparar = (sql, valores = []) => ({
 });
 const env = {
   DB: { prepare: (sql) => preparar(sql), batch: async (lista) => Promise.all(lista.map((p) => p.run())) },
+  ADMIN_KEY: process.env.ADMIN_KEY || 'chave-local-de-teste-1234567890',
   AI: { run: async () => ({ response: 'Mais um mês sobrevivendo aos treinos\nMinhas pernas pediram férias, eu renovei\nTreino em dia, preguiça atrasada' }) },
 };
 const TIPOS = { html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/json' };

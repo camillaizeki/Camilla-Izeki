@@ -71,6 +71,15 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.notEqual(r.corpo.codigo, codigo2);
   assert.equal((await chamar('painel')).corpo.personal.temCodigo, true);
 
+  // Administração: sem chave configurada fica desligada; com chave, gera código que funciona
+  assert.equal((await chamar('admin/codigo', 'POST', { chave: 'qualquer', email: 'rafa@exemplo.com' }, false)).status, 503);
+  env.ADMIN_KEY = 'chave-de-teste-bem-comprida-123';
+  assert.equal((await chamar('admin/codigo', 'POST', { chave: 'chave-errada', email: 'rafa@exemplo.com' }, false)).status, 401);
+  assert.equal((await chamar('admin/codigo', 'POST', { chave: env.ADMIN_KEY, email: 'ninguem@exemplo.com' }, false)).status, 404);
+  r = await chamar('admin/codigo', 'POST', { chave: env.ADMIN_KEY, email: ' Rafa@Exemplo.com ' }, false);
+  assert.equal(r.corpo.nome, 'Rafael Lima');
+  assert.equal((await chamar('conta/redefinir', 'POST', { email: 'rafa@exemplo.com', codigo: r.corpo.codigo, senha: 'senha-nova-22' })).status, 200);
+
   // Configura o Pix
   r = await chamar('conta', 'PUT', { nome: 'Rafael Lima', pixTipo: 'celular', pixChave: '(11) 98888-7777', pixNome: 'Rafael Lima', pixCidade: 'São Paulo', valorPadrao: 25000, diaPadrao: 5, tom: 'zoeiro' });
   assert.equal(r.status, 200);

@@ -44,4 +44,7 @@ node testes/servidor-local.js   # abre o app em http://localhost:8788
 
 Não há envio de e-mail. Ao criar a conta, o personal recebe um código de recuperação (mostrado uma vez).
 Em "Esqueci minha senha", ele informa e-mail, código e a senha nova. Um novo código pode ser gerado na aba Conta.
-Quem perder a senha e o código precisa de ajuste direto no banco.
+
+Quem perder a senha e o código pede ajuda à administração. Em `/admin`, com a chave de administração,
+gera-se um código novo para o e-mail da conta. A chave fica na Cloudflare como segredo `ADMIN_KEY`
+(em *Settings > Variables and Secrets*, tipo *Secret*, com 20 caracteres ou mais). Sem esse segredo, a área fica desligada.

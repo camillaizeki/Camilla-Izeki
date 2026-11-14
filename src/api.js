@@ -255,6 +255,20 @@ async function rotear(request, env, partes) {
     return json({ codigo: await trocarCodigo(db, p.id) });
   }
 
+  // Administração: gera um código de recuperação para a conta de um personal.
+  // Só funciona com a chave guardada como segredo ADMIN_KEY na Cloudflare.
+  if (a === 'admin' && b === 'codigo' && metodo === 'POST') {
+    const chaveCerta = String(env.ADMIN_KEY || '');
+    if (chaveCerta.length < 20) throw new Falha('A área de administração ainda não foi configurada.', 503);
+    const d = await corpo(request);
+    const resumo = async (t) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(t || ''))));
+    if (!iguais(await resumo(d.chave), await resumo(chaveCerta))) throw new Falha('Chave de administração incorreta.', 401);
+    const email = String(d.email || '').trim().toLowerCase();
+    const p = await db.prepare('SELECT id, nome, email FROM personais WHERE email = ?').bind(email).first();
+    if (!p) throw new Falha('Não existe conta com esse e-mail.', 404);
+    return json({ nome: p.nome, email: p.email, codigo: await trocarCodigo(db, p.id) });
+  }
+
   if (a === 'conta' && b === 'entrar' && metodo === 'POST') {
     const d = await corpo(request);
     const email = String(d.email || '').trim().toLowerCase();
