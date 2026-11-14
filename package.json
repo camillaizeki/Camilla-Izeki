@@ -1,0 +1,8 @@
+{
+  "name": "renova-ai",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test testes/logica.test.js testes/api.test.js"
+  }
+}
