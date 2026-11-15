@@ -413,7 +413,7 @@ function linhaMensalidade(a, m) {
     ),
     el('div', { class: 'linha' },
       aberta && el('button', { class: 'botao menor', style: 'width: auto; padding: 0 20px', onclick: () => marcarPago(a, m) }, 'Pago'),
-      el('button', { class: 'link pequeno', onclick: () => irPara('pagar', { m }) }, aberta ? 'Outra data ou valor' : m.situacao === 'pago' ? 'Corrigir' : m.situacao === 'anterior' ? 'Lançar recebimento ou cobrar' : 'Alterar')
+      el('button', { class: 'link pequeno', onclick: () => irPara('pagar', { m }) }, aberta ? 'Outra data ou valor' : m.situacao === 'pago' ? 'Corrigir' : m.situacao === 'anterior' ? 'Informar se foi pago ou não' : 'Alterar')
     )
   );
 }
@@ -518,6 +518,7 @@ function folhaPagar() {
   return [
     el('div', {}, el('p', { class: 'pequeno suave' }, a.nome), el('h2', {}, m ? maiuscula(m.rotulo) : 'Lançar um recebimento')),
     erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    m?.situacao === 'anterior' && el('p', { class: 'suave' }, 'Este mês é de antes do controle pelo app. Se foi recebido, salve como pago. Se ficou em aberto, marque como atrasado: ele entra na conta do aluno e na fila de lembretes.'),
     el('form', {
       class: 'coluna',
       onsubmit: (e) => {
@@ -541,7 +542,7 @@ function folhaPagar() {
       el('p', { class: 'pequeno suave' }, 'O valor entra no faturamento do mês em que foi recebido.'),
       el('button', { class: 'botao', type: 'submit' }, m?.situacao === 'pago' ? 'Salvar correção' : 'Salvar como pago')
     ),
-    m && m.situacao !== 'pendente' && m.situacao !== 'atrasado' && el('button', { class: 'botao claro menor', onclick: () => acao('reabrir') }, m.situacao === 'pago' ? 'Desfazer pagamento' : m.situacao === 'anterior' ? 'Cobrar este mês (fica como atrasado)' : 'Voltar a cobrar este mês'),
+    m && m.situacao !== 'pendente' && m.situacao !== 'atrasado' && el('button', { class: 'botao claro menor', onclick: () => acao('reabrir') }, m.situacao === 'pago' ? 'Desfazer pagamento' : m.situacao === 'anterior' ? 'Não foi pago: marcar como atrasado' : 'Voltar a cobrar este mês'),
     m && (m.situacao === 'pendente' || m.situacao === 'atrasado') && el('button', { class: 'botao claro menor', onclick: () => acao('dispensar') }, 'Dispensar esta mensalidade'),
     el('button', { class: 'link', onclick: () => irPara('aluno') }, 'Voltar'),
   ];
