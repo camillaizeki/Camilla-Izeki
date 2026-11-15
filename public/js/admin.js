@@ -23,7 +23,7 @@ function botaoCopiar(texto, rotulo) {
 
 function telaResultado() {
   const mensagem =
-    `Oi, ${resultado.nome.split(' ')[0]}! Seu novo código de recuperação do Renova.AI é ${resultado.codigo}. ` +
+    `Oi, ${resultado.nome.split(' ')[0]}! Seu novo código de recuperação do Renova AI é ${resultado.codigo}. ` +
     `Abra ${location.origin}/painel, toque em "Esqueci minha senha" e use esse código para criar uma senha nova.`;
   return [
     el('h1', {}, 'Código gerado'),

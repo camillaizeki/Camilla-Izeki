@@ -170,7 +170,8 @@ const precisaLembrar = (a) => ['renova_hoje', 'renova_em', 'aguardando'].include
 // A mensagem ao aluno continua leve: fala da jornada, nunca de atraso.
 function textoLembrete(a) {
   const nome = primeiro(a.nome);
-  const assinatura = `\n\nResumo automático do Renova.AI para alunos de ${P()}`;
+  // Nas mensagens de WhatsApp o nome vai sem ponto: "Renova.AI" vira link clicável para um site que não é o app.
+  const assinatura = `\n\nResumo automático do Renova AI para alunos de ${P()}`;
   if (a.emPausa || a.status === 'inativo') {
     return `Oi, ${nome}! Sua jornada de ${meses(a.meses)} com ${P()} está guardada. Quando quiser voltar, é só reativar por aqui: ${linkAluno(a)}${assinatura}`;
   }
@@ -466,7 +467,7 @@ function formularioPausa(a) {
 function folhaAluno() {
   const a = alunoDaFolha();
   const [classe, rotulo] = chipDoAluno(a);
-  const trilha = `Oi, ${primeiro(a.nome)}! Este é o seu cartão no Renova.AI, com sua trilha de treinos com ${P()}, seus selos e a arte para compartilhar: ${linkAluno(a)}`;
+  const trilha = `Oi, ${primeiro(a.nome)}! Este é o seu cartão no Renova AI, com sua trilha de treinos com ${P()}, seus selos e a arte para compartilhar: ${linkAluno(a)}`;
 
   // Pausas e mensalidades juntas, da mais recente para a mais antiga.
   const historico = [
@@ -627,7 +628,7 @@ function abaNovos() {
       copiarBotao.textContent = (await copiar(linkConvite())) ? 'Link copiado' : 'Copie o link acima';
     },
   }, 'Copiar link');
-  const convite = `Oi! Estou usando o Renova.AI para acompanhar a jornada dos meus alunos. Faz seu cadastro em 1 minuto: ${linkConvite()}`;
+  const convite = `Oi! Estou usando o Renova AI para acompanhar a jornada dos meus alunos. Faz seu cadastro em 1 minuto: ${linkConvite()}`;
   return [
     el('div', { class: 'cartao escuro' },
       el('p', { class: 'pequeno suave' }, 'Seu link de convite'),
