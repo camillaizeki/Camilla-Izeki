@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { bancoFalso } from './banco-falso.js';
 import { atenderApi } from '../src/api.js';
 import { crc16 } from '../lib/pix.js';
-import { hojeBR, chaveMes, somaMes, dataISO } from '../lib/jornada.js';
+import { hojeBR, chaveMes, somaMes, dataISO, nomeMes as nomeDoMes } from '../lib/jornada.js';
 
 const hoje = hojeBR();
 const mesAtual = chaveMes(hoje.ano, hoje.mes);
@@ -143,8 +143,40 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.equal(r.corpo.alunos[0].filtro, 'pago');
   assert.equal(r.corpo.alunos[0].abertas.length, 0);
   const fin = r.corpo.financeiro;
-  assert.equal(fin.meses.length, 12);
-  assert.deepEqual([fin.meses.at(-1).mes, fin.meses.at(-1).recebido, fin.meses.at(-1).previsto, fin.meses.at(-1).pagas, fin.meses.at(-1).total], [mesAtual, 25000, 25000, 1, 1]);
+  assert.equal(fin.meses.length, 15); // 12 meses até o atual e 3 à frente
+  const doMes = fin.meses[fin.atual];
+  assert.deepEqual([doMes.mes, doMes.recebido, doMes.previsto, doMes.pagas, doMes.total], [mesAtual, 25000, 25000, 1, 1]);
+  // Mês que vem: ainda não tem mensalidade gerada, mas já aparece como previsto
+  assert.deepEqual([fin.meses[fin.atual + 1].futuro, fin.meses[fin.atual + 1].previsto, fin.meses[fin.atual + 1].total, fin.meses[fin.atual + 1].pagas], [true, 25000, 1, 0]);
+
+  // Pagamento adiantado: dois meses à frente, recebidos hoje
+  const mais1 = somaMes(mesAtual, 1);
+  const mais2 = somaMes(mesAtual, 2);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mais1}`, 'POST', { acao: 'pagar' })).status, 200);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mais2}`, 'POST', { acao: 'pagar', valor: 20000 })).status, 200);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${somaMes(mesAtual, 13)}`, 'POST', { acao: 'pagar' })).status, 400); // longe demais
+  r = await chamar('painel');
+  const adi = r.corpo.financeiro;
+  assert.equal(adi.meses[adi.atual].recebido, 70000); // entrou hoje, conta no mês de hoje
+  assert.equal(adi.meses[adi.atual].adiantado, 45000);
+  assert.deepEqual([adi.meses[adi.atual + 1].pagas, adi.meses[adi.atual + 1].recebidoDoMes, adi.meses[adi.atual + 1].recebido], [1, 25000, 0]);
+  assert.deepEqual([adi.meses[adi.atual + 2].pagas, adi.meses[adi.atual + 2].recebidoDoMes], [1, 20000]);
+  assert.ok(r.corpo.alunos[0].pagoAte.startsWith(nomeDoMes(mais2)));
+  assert.equal(r.corpo.alunos[0].filtro, 'pago');
+  assert.equal(r.corpo.alunos[0].abertas.length, 0);
+  assert.equal(r.corpo.alunos[0].meses, 6); // mês adiantado ainda não conta como treino
+  r = await chamar(`alunos/${ana.id}/mensalidades`);
+  assert.deepEqual(r.corpo.mensalidades.slice(0, 3).map((m) => [m.mes, m.situacao, m.adiantado]), [[mais2, 'pago', true], [mais1, 'pago', true], [mesAtual, 'pago', false]]);
+  r = await chamar('aluno/' + token, 'GET', null, false);
+  assert.equal(r.corpo.meses, 6);
+  assert.equal(r.corpo.nomeAlvo, nomeDoMes(somaMes(mesAtual, 3))); // o link oferece o próximo mês sem pagamento
+  // Desfazer um adiantado apaga o lançamento
+  await chamar(`alunos/${ana.id}/mensalidades/${mais2}`, 'POST', { acao: 'reabrir' });
+  await chamar(`alunos/${ana.id}/mensalidades/${mais1}`, 'POST', { acao: 'reabrir' });
+  r = await chamar('painel');
+  assert.equal(r.corpo.financeiro.meses[r.corpo.financeiro.atual].recebido, 25000);
+  assert.equal(r.corpo.alunos[0].pagoAte, null);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades`)).corpo.mensalidades[0].mes, mesAtual);
   assert.deepEqual([fin.aVencer, fin.emAtraso], [0, 0]);
   assert.deepEqual(fin.alunos, { ativos: 1, pausados: 0, inadimplentes: 0, inativos: 0 });
   r = await chamar('aluno/' + token, 'GET', null, false);

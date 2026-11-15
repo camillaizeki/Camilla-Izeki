@@ -2,7 +2,7 @@
 import { prepararBanco, FRASES_PADRAO } from '../lib/banco.js';
 import { gerarPix, normalizarChave } from '../lib/pix.js';
 import { calcular, fases, hojeBR, chaveMes, somaMes, mesesIniciais, mesesBase, marcoDe, dataISO } from '../lib/jornada.js';
-import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual } from '../lib/mensalidades.js';
+import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
 const MODELO_PADRAO = '@cf/meta/llama-3.1-8b-instruct';
@@ -210,7 +210,17 @@ function mensalidadeParaPainel(m, hoje) {
     valor: m.valor_previsto,
     recebidoEm: m.recebido_em,
     valorRecebido: m.valor_recebido,
+    adiantado: m.status === 'confirmado' && m.mes > chaveMes(hoje.ano, hoje.mes),
   };
+}
+
+// Para quem paga adiantado: último mês de uma sequência paga que começa no mês atual e passa dele.
+function pagoAte(pagamentos, hoje) {
+  const pagos = new Set(pagamentos.filter((p) => p.status === 'confirmado').map((p) => p.mes));
+  const atual = chaveMes(hoje.ano, hoje.mes);
+  let mes = atual;
+  while (pagos.has(somaMes(mes, 1))) mes = somaMes(mes, 1);
+  return pagos.has(atual) && mes > atual ? rotuloMes(mes) : null;
 }
 
 function alunoParaPainel(a, pagamentos, pausas, hoje) {
@@ -242,6 +252,7 @@ function alunoParaPainel(a, pagamentos, pausas, hoje) {
     abertas,
     totalAberto: abertas.reduce((t, m) => t + (m.valor || 0), 0),
     pausas: pausas.map((p) => ({ id: p.id, inicio: p.inicio, fim: p.fim, cobrar: !!p.cobrar })),
+    pagoAte: pagoAte(pagamentos, hoje),
     proximoMarco: marcoDe(c.meses + 1),
     lembradoHoje: a.lembrado_em === dataHoje(),
   };
@@ -430,7 +441,11 @@ async function rotear(request, env, partes) {
       mesAtual: rotuloMes(chaveMes(hoje.ano, hoje.mes)),
       resumo: resumoDoMes(todos, hoje),
       financeiro: {
-        meses: serieMensal(todos, hoje, 12),
+        meses: serieMensal(todos, hoje, 12, mesesFuturos(todos, hoje)).map((m) =>
+          // Mês que ainda não chegou: o previsto vem do cadastro dos alunos.
+          m.futuro ? { ...m, ...projecaoDoMes(alunos, pagsPorAluno, pausPorAluno, m.mes) } : m
+        ),
+        atual: 11, // posição do mês atual na lista acima
         ...posicaoAtual(todos, hoje),
         alunos: {
           ativos: saida.filter((x) => x.status === 'ativo' && !x.emPausa).length,
@@ -589,6 +604,11 @@ async function rotear(request, env, partes) {
         return json({ ok: true });
       }
       if (!atual) throw new Falha('Mensalidade não encontrada.', 404);
+      if (d.acao === 'reabrir' && mes > mesAtual) {
+        // Desfazer um pagamento adiantado: o mês volta a não existir até chegar a vez dele.
+        await db.prepare('DELETE FROM pagamentos WHERE aluno_id = ? AND mes = ?').bind(aluno.id, mes).run();
+        return json({ ok: true });
+      }
       if (d.acao === 'reabrir' || d.acao === 'dispensar') {
         await db
           .prepare('UPDATE pagamentos SET status = ?, recebido_em = NULL, valor_recebido = NULL, confirmado_em = NULL WHERE aluno_id = ? AND mes = ?')

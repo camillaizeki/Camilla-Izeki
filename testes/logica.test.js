@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { crc16, gerarPix, normalizarChave } from '../lib/pix.js';
 import { calcular, fases, mesesIniciais, somaMes, seloAtual, marcoDe } from '../lib/jornada.js';
-import { faltantes, situacaoMensalidade, filtroDoAluno, resumoDoMes, serieMensal, posicaoAtual } from '../lib/mensalidades.js';
+import { faltantes, situacaoMensalidade, filtroDoAluno, resumoDoMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 test('crc16 bate com o valor de referência do padrão', () => {
   assert.equal(crc16('123456789'), '29B1');
@@ -159,4 +159,36 @@ test('dashboard: faturamento pela data do recebimento, sem contar em dobro', () 
   // Cada real recebido aparece em um único mês
   assert.equal(serie.reduce((t, m) => t + m.recebido, 0), 25000 + 28000 + 25000);
   assert.deepEqual(posicaoAtual(pagamentos, hoje), { aVencer: 60000, emAtraso: 30000 });
+});
+
+test('pagamento adiantado: conta no caixa de hoje, aparece no mês futuro e não adianta a trilha', () => {
+  const hoje = { ano: 2026, mes: 11, dia: 15 };
+  const aluno = { id: 1, status: 'ativo', valor: 30000, dia_venc: 10, mes_inicio: '2026-09', mes_cadastro: '2026-11', mes_controle: '2026-11' };
+  const pagos = ['2026-11', '2026-12', '2027-01'].map((mes) => ({ mes, status: 'confirmado', vencimento: mes + '-10', valor_previsto: 30000, recebido_em: '2026-11-15', valor_recebido: 30000 }));
+  // Trilha: setembro, outubro e novembro. Dezembro e janeiro só contam quando chegarem.
+  const c = calcular(aluno, pagos, hoje);
+  assert.equal(c.meses, 3);
+  assert.equal(c.sequencia, 3);
+  assert.equal(c.alvo, '2027-02');
+  assert.equal(c.situacao, 'em_dia');
+  assert.equal(calcular(aluno, pagos, { ano: 2027, mes: 1, dia: 2 }).meses, 5);
+  // Dashboard
+  assert.equal(mesesFuturos(pagos, hoje), 3);
+  assert.equal(mesesFuturos([...pagos, { mes: '2027-06', status: 'confirmado' }], hoje), 7);
+  const serie = serieMensal(pagos, hoje, 12, 3);
+  assert.equal(serie.length, 15);
+  const nov = serie[11];
+  assert.deepEqual([nov.mes, nov.futuro, nov.recebido, nov.adiantado, nov.deAnteriores], ['2026-11', false, 90000, 60000, 0]);
+  assert.deepEqual([serie[12].mes, serie[12].futuro, serie[12].recebido, serie[12].pagas, serie[12].recebidoDoMes], ['2026-12', true, 0, 1, 30000]);
+  // Previsto de um mês futuro: quem pagou adiantado, quem ainda vai pagar, e ninguém em pausa ou inativo
+  const alunos = [
+    aluno,
+    { id: 2, status: 'ativo', valor: 25000, dia_venc: 5, mes_controle: '2026-11' },
+    { id: 3, status: 'ativo', valor: 40000, dia_venc: 5, mes_controle: '2026-11' }, // em pausa
+    { id: 4, status: 'inativo', valor: 40000, dia_venc: 5, mes_controle: '2026-11' },
+    { id: 5, status: 'ativo', valor: 40000, dia_venc: 5, mes_controle: '2027-01' }, // controle começa depois
+  ];
+  const pags = new Map([[1, pagos]]);
+  const pausas = new Map([[3, [{ inicio: '2026-11-20', fim: null, cobrar: 0 }]]]);
+  assert.deepEqual(projecaoDoMes(alunos, pags, pausas, '2026-12'), { previsto: 55000, total: 2, pagas: 1, recebidoDoMes: 30000 });
 });
