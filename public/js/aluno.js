@@ -241,7 +241,7 @@ async function desenharArte(canvas) {
 }
 
 function telaArte() {
-  const canvas = el('canvas', { class: 'arte', role: 'img', 'aria-label': 'Arte: ' + fraseAtual() });
+  const canvas = el('canvas', { class: 'arte', role: 'img', 'aria-label': 'Imagem da conquista: ' + fraseAtual() });
   desenharArte(canvas);
 
   const compartilhar = el('button', {
@@ -262,14 +262,14 @@ function telaArte() {
   }, 'Compartilhar');
 
   return [
-    el('h1', { style: 'font-size: 22px' }, 'Sua arte para compartilhar'),
+    el('h1', { style: 'font-size: 22px' }, 'Sua conquista para compartilhar'),
     canvas,
     el('div', { class: 'coluna fim', style: 'gap: 10px' },
       d.frases.length > 1 && el('button', {
         class: 'botao claro',
         onclick: () => {
           fraseIdx++;
-          canvas.setAttribute('aria-label', 'Arte: ' + fraseAtual());
+          canvas.setAttribute('aria-label', 'Imagem da conquista: ' + fraseAtual());
           desenharArte(canvas);
         },
       }, icone('trocar', { tamanho: 18 }), 'Trocar frase'),

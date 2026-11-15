@@ -141,3 +141,7 @@ a { color: var(--tinta); }
 button.numero { text-align: left; font: inherit; color: inherit; cursor: pointer; }
 button.numero strong { text-decoration: underline; text-underline-offset: 3px; }
 .dupla .numero strong { font-size: 18px; }
+
+/* Abas com largura conforme o texto; em telas muito estreitas, quebram em duas linhas. */
+.abas { display: flex; flex-wrap: wrap; gap: 4px; }
+.aba { flex: 1 1 auto; padding: 0 3px; white-space: nowrap; }

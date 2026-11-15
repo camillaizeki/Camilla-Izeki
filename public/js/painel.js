@@ -353,7 +353,7 @@ function abaAlunos() {
     !dados.personal.pixChave && el('p', { class: 'aviso' }, 'Cadastre sua chave Pix na aba Conta para os alunos conseguirem pagar pelo link.'),
     desfazer && el('div', { class: 'aviso coluna' },
       el('span', {}, desfazer.texto),
-      el('a', { class: 'botao menor', href: desfazer.avisar, target: '_blank', rel: 'noopener' }, 'Avisar o aluno e enviar a arte'),
+      el('a', { class: 'botao menor', href: desfazer.avisar, target: '_blank', rel: 'noopener' }, 'Avisar o aluno e enviar a conquista'),
       el('button', {
         class: 'link',
         onclick: () => {
@@ -582,7 +582,7 @@ function formularioPausa(a) {
 function folhaAluno() {
   const a = alunoDaFolha();
   const [classe, rotulo] = chipDoAluno(a);
-  const trilha = `Oi, ${primeiro(a.nome)}! Este é o seu cartão no Renova AI, com sua trilha de treinos com ${P()}, seus selos e a arte para compartilhar: ${linkAluno(a)}`;
+  const trilha = `Oi, ${primeiro(a.nome)}! Este é o seu cartão no Renova AI, com sua trilha de treinos com ${P()}, seus selos e a imagem da sua conquista para compartilhar: ${linkAluno(a)}`;
 
   // Pausas e mensalidades juntas, da mais recente para a mais antiga.
   const historico = [
@@ -859,13 +859,13 @@ function abaArte() {
           ? el('img', { src: `/api/foto/${p.slug}?v=${Date.now()}`, alt: 'Sua foto', style: 'width: 72px; height: 96px; border-radius: 10px; object-fit: cover' })
           : el('div', { class: 'foto vazia', style: 'width: 72px; height: 96px; border-radius: 10px' }, 'Sua foto'),
         el('div', { class: 'coluna cresce', style: 'gap: 8px' },
-          el('p', { class: 'pequeno suave' }, 'Esta foto vira o fundo da arte que seus alunos compartilham. Fotos em pé funcionam melhor.'),
+          el('p', { class: 'pequeno suave' }, 'Esta foto vira o fundo da imagem de conquista que seus alunos compartilham. Fotos em pé funcionam melhor.'),
           arquivo,
           el('label', { class: 'botao claro menor', for: 'foto' }, p.temFoto ? 'Trocar foto' : 'Enviar foto')
         )
       )
     ),
-    el('div', {}, el('h2', {}, 'Frases da arte'), el('p', { class: 'pequeno suave' }, 'O aluno sorteia entre as frases marcadas. Onde aparece {meses}, entra o número de meses de treino dele.')),
+    el('div', {}, el('h2', {}, 'Frases da conquista'), el('p', { class: 'pequeno suave' }, 'O aluno sorteia entre as frases marcadas. Onde aparece {meses}, entra o número de meses de treino dele.')),
     dados.frases.map((f) =>
       el('div', { class: 'cartao', style: 'flex-direction: row; align-items: center; padding: 8px 12px' },
         el('label', { class: 'marca cresce' },
@@ -901,7 +901,7 @@ function abaArte() {
           }, 'Usar')
         )
       ),
-      el('p', { class: 'pequeno suave' }, 'Só entram na arte as frases que você escolher.')
+      el('p', { class: 'pequeno suave' }, 'Só entram na imagem as frases que você escolher.')
     ),
   ];
 }
@@ -1010,7 +1010,7 @@ function desenhar() {
   if (!dados) return montar(telaConta());
   if (codigoNovo) return montar(telaCodigo());
   const novos = dados.alunos.filter((a) => a.status === 'novo').length;
-  const abas = [['inicio', 'Início'], ['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Arte'], ['conta', 'Conta']];
+  const abas = [['inicio', 'Início'], ['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Conquista'], ['conta', 'Conta']];
   const conteudo = { inicio: abaInicio, alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
   const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario };
   montar(
