@@ -47,7 +47,14 @@ function inteiro(valor, min, max, nomeCampo) {
 
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const aleatorio = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
-const primeiroNome = (nome) => String(nome || '').trim().split(/\s+/)[0];
+// Primeiro nome para as mensagens. Se a pessoa escreveu um título antes ("Personal Rafa", "Prof. Ana"),
+// usa o nome que vem depois dele.
+const TITULOS = ['personal', 'trainer', 'prof', 'professor', 'professora', 'coach', 'treinador', 'treinadora', 'dr', 'dra'];
+const primeiroNome = (nome) => {
+  const partes = String(nome || '').trim().split(/\s+/);
+  while (partes.length > 1 && TITULOS.includes(partes[0].toLowerCase().replace(/\.$/, ''))) partes.shift();
+  return partes[0];
+};
 const dataHoje = () => {
   const h = hojeBR();
   return chaveMes(h.ano, h.mes) + '-' + String(h.dia).padStart(2, '0');

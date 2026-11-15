@@ -224,7 +224,9 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
 
   // Outro personal não mexe no aluno do Rafa
   const cookieRafa = cookie;
-  await chamar('conta/criar', 'POST', { nome: 'Bia', email: 'bia@exemplo.com', senha: 'senha-forte-2', slug: 'bia' });
+  await chamar('conta/criar', 'POST', { nome: 'Personal Trainer Bia Souza', email: 'bia@exemplo.com', senha: 'senha-forte-2', slug: 'bia' });
+  assert.equal((await chamar('painel')).corpo.personal.primeiroNome, 'Bia'); // título antes do nome é ignorado nas mensagens
+  assert.equal((await chamar('convite/bia', 'GET', null, false)).corpo.personal.primeiroNome, 'Bia');
   assert.equal((await chamar('alunos/' + ana.id, 'DELETE')).status, 404);
   assert.equal((await chamar(`alunos/${ana.id}/mensalidades`)).status, 404);
   assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mesAtual}`, 'POST', { acao: 'pagar' })).status, 404);
