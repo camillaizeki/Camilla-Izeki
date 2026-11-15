@@ -127,3 +127,5 @@ a { color: var(--tinta); }
 .filtro[aria-pressed='true'] { background: var(--tinta); color: var(--branco); }
 .mensalidade { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--linha); }
 .cartao.escuro .botao.lima { color: var(--tinta); }
+.mensalidade.pausa { padding: 12px; border: 1.5px dashed var(--suave); border-radius: 12px; }
+.mensalidade.pausa + .mensalidade { border-top: none; }

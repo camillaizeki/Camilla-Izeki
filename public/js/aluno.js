@@ -72,17 +72,18 @@ function acaoDaTrilha() {
 
 function telaTrilha() {
   return [
-    el('div', { class: 'linha entre topo' },
-      el('div', {},
-        el('p', { class: 'suave' }, 'Oi, ' + d.nome),
-        el('h1', { style: 'font-size: 26px' }, d.meses > 0 ? `${meses(d.meses)} treinando com ${P()}` : `Sua jornada com ${P()}`)
-      ),
-      el('button', { class: 'icone-botao', 'aria-label': 'Compartilhar conquista', onclick: () => ir('arte') }, icone('compartilhar', { tamanho: 20 }))
+    el('div', {},
+      el('p', { class: 'suave' }, 'Oi, ' + d.nome),
+      el('h1', { style: 'font-size: 26px' }, d.meses > 0 ? `${meses(d.meses)} treinando com ${P()}` : `Sua jornada com ${P()}`)
     ),
     d.sequencia >= 2 && el('div', { class: 'sequencia' }, icone('raio', { tamanho: 14, cor: '#C8F03C', traco: 2.5 }), `Sequência: ${d.sequencia} meses seguidos`),
     d.status === 'pausado' && el('p', { class: 'pequeno suave' }, 'Sua jornada está guardada. É só voltar quando quiser.'),
     el('div', { class: 'trilha cresce' }, d.fases.map(fase)),
-    el('div', { class: 'coluna fim' }, acaoDaTrilha()),
+    el('div', { class: 'coluna fim' },
+      acaoDaTrilha(),
+      d.status !== 'novo' && d.situacao !== 'informado' && d.meses > 0 &&
+        el('button', { class: 'botao claro', onclick: () => ir('arte') }, icone('compartilhar', { tamanho: 18 }), 'Compartilhar minha conquista')
+    ),
   ];
 }
 

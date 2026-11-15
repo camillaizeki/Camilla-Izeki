@@ -183,7 +183,14 @@ function textoLembrete(a) {
 function marcarPago(a, m) {
   return agirNaFolha(async () => {
     await api(`alunos/${a.id}/mensalidades/${m.mes}`, 'POST', { acao: 'pagar' });
-    desfazer = { id: a.id, mes: m.mes, texto: `${maiuscula(m.rotulo.split(' ')[0])} de ${primeiro(a.nome)} marcado como pago.` };
+    const mes = m.rotulo.split(' ')[0];
+    const aviso = `Oi, ${primeiro(a.nome)}! ${maiuscula(mes)} está desbloqueado na sua trilha com ${P()}. Veja seu selo e compartilhe a conquista: ${linkAluno(a)}`;
+    desfazer = {
+      id: a.id,
+      mes: m.mes,
+      texto: `${maiuscula(mes)} de ${primeiro(a.nome)} marcado como pago.`,
+      avisar: `https://wa.me/${a.whatsapp}?text=${encodeURIComponent(aviso)}`,
+    };
   });
 }
 
@@ -231,8 +238,9 @@ function abaAlunos() {
 
   return [
     !dados.personal.pixChave && el('p', { class: 'aviso' }, 'Cadastre sua chave Pix na aba Conta para os alunos conseguirem pagar pelo link.'),
-    desfazer && el('div', { class: 'aviso linha entre' },
+    desfazer && el('div', { class: 'aviso coluna' },
       el('span', {}, desfazer.texto),
+      el('a', { class: 'botao menor', href: desfazer.avisar, target: '_blank', rel: 'noopener' }, 'Avisar o aluno e enviar a arte'),
       el('button', {
         class: 'link',
         onclick: () => {
@@ -408,9 +416,64 @@ function linhaMensalidade(a, m) {
   );
 }
 
+function linhaPausa(a, p) {
+  const aberta = !p.fim || p.fim >= dados.hoje;
+  return el('div', { class: 'mensalidade pausa' },
+    el('div', { class: 'linha entre topo' },
+      el('div', {},
+        el('h3', {}, `Pausa: ${dataBR(p.inicio)} ${p.fim ? 'até ' + dataBR(p.fim) : 'em diante'}`),
+        el('p', { class: 'pequeno suave' }, p.cobrar ? 'Mensalidade mantida durante a pausa' : 'Sem mensalidade durante a pausa')
+      ),
+      el('span', { class: 'chip vazio' }, aberta && p.inicio <= dados.hoje ? 'Em pausa' : aberta ? 'Agendada' : 'Encerrada')
+    ),
+    el('div', { class: 'linha' },
+      aberta && p.inicio <= dados.hoje && el('button', {
+        class: 'link pequeno',
+        onclick: () => agirNaFolha(() => api(`alunos/${a.id}/pausas/${p.id}`, 'PUT', { inicio: p.inicio, fim: dados.hoje, cobrar: p.cobrar })),
+      }, 'Encerrar hoje'),
+      el('button', { class: 'link pequeno', onclick: () => agirNaFolha(() => api(`alunos/${a.id}/pausas/${p.id}`, 'DELETE')) }, 'Apagar pausa')
+    )
+  );
+}
+
+function formularioPausa(a) {
+  const inicio = el('input', { id: 'pInicio', type: 'date', required: true, value: dados.hoje });
+  const fim = el('input', { id: 'pFim', type: 'date' });
+  const cobrar = el('input', { type: 'checkbox' });
+  return el('form', {
+    class: 'cartao',
+    onsubmit: (e) => {
+      e.preventDefault();
+      agirNaFolha(async () => {
+        await api(`alunos/${a.id}/pausas`, 'POST', { inicio: inicio.value, fim: fim.value || null, cobrar: cobrar.checked });
+        folha.novaPausa = false;
+      });
+    },
+  },
+    el('h3', {}, 'Nova pausa'),
+    el('div', { class: 'dupla' },
+      el('div', { class: 'campo' }, el('label', { for: 'pInicio' }, 'Início'), inicio),
+      el('div', { class: 'campo' }, el('label', { for: 'pFim' }, 'Término (opcional)'), fim)
+    ),
+    el('label', { class: 'marca' }, cobrar, el('span', {}, 'Manter a mensalidade durante a pausa')),
+    el('div', { class: 'dupla' },
+      el('button', { class: 'botao menor', type: 'submit' }, 'Registrar'),
+      el('button', { class: 'botao claro menor', type: 'button', onclick: () => irPara('aluno', { novaPausa: false }) }, 'Cancelar')
+    )
+  );
+}
+
 function folhaAluno() {
   const a = alunoDaFolha();
   const [classe, rotulo] = chipDoAluno(a);
+  const trilha = `Oi, ${primeiro(a.nome)}! Este é o seu cartão no Renova.AI, com sua trilha de treinos com ${P()}, seus selos e a arte para compartilhar: ${linkAluno(a)}`;
+
+  // Pausas e mensalidades juntas, da mais recente para a mais antiga.
+  const historico = [
+    ...(folha.mensalidades || []).map((m) => ({ data: m.vencimento, no: () => linhaMensalidade(a, m) })),
+    ...a.pausas.map((p) => ({ data: p.inicio, no: () => linhaPausa(a, p) })),
+  ].sort((x, y) => (x.data < y.data ? 1 : -1));
+
   return [
     el('div', { class: 'linha entre topo' },
       el('div', {},
@@ -422,13 +485,17 @@ function folhaAluno() {
     erro && el('p', { class: 'erro', role: 'alert' }, erro),
     el('div', { class: 'dupla' },
       el('button', { class: 'botao claro menor', onclick: () => irPara('form') }, 'Editar cadastro'),
-      el('button', { class: 'botao claro menor', onclick: () => irPara('pausas') }, a.pausas.length ? `Pausas (${a.pausas.length})` : 'Registrar pausa')
+      el('button', { class: 'botao claro menor', disabled: !!folha.novaPausa, onclick: () => irPara('aluno', { novaPausa: true }) }, 'Registrar pausa')
     ),
-    a.status !== 'inativo' && el('button', { class: 'botao claro menor', onclick: () => abrirFila([a]) }, 'Enviar lembrete pelo WhatsApp'),
-    el('h3', {}, 'Mensalidades'),
+    el('div', { class: 'dupla' },
+      el('button', { class: 'botao claro menor', disabled: a.status === 'inativo', onclick: () => abrirFila([a]) }, 'Enviar lembrete'),
+      el('a', { class: 'botao claro menor', href: `https://wa.me/${a.whatsapp}?text=${encodeURIComponent(trilha)}`, target: '_blank', rel: 'noopener' }, 'Enviar link da trilha')
+    ),
+    folha.novaPausa && formularioPausa(a),
+    el('h3', {}, 'Mensalidades e pausas'),
     !folha.mensalidades && el('p', { class: 'suave' }, 'Carregando…'),
-    folha.mensalidades && !folha.mensalidades.length && el('p', { class: 'suave' }, 'Nenhuma mensalidade ainda. A primeira aparece no mês em que o controle começa.'),
-    folha.mensalidades && folha.mensalidades.map((m) => linhaMensalidade(a, m)),
+    folha.mensalidades && !historico.length && el('p', { class: 'suave' }, 'Nada por aqui ainda. A primeira mensalidade aparece no mês em que o controle começa.'),
+    folha.mensalidades && historico.map((item) => item.no()),
     el('div', { class: 'linha entre' },
       el('button', { class: 'link', onclick: () => irPara('pagar', { m: null }) }, 'Lançar outro mês'),
       el('button', { class: 'link', onclick: fecharFolha }, 'Fechar')
@@ -547,48 +614,6 @@ function folhaFormulario() {
       }, 'Excluir aluno') : el('span'),
       el('button', { class: 'link', onclick: () => (a ? irPara('aluno') : fecharFolha()) }, a ? 'Voltar' : 'Fechar')
     ),
-  ];
-}
-
-function folhaPausas() {
-  const a = alunoDaFolha();
-  const inicio = el('input', { id: 'pInicio', type: 'date', required: true, value: dados.hoje });
-  const fim = el('input', { id: 'pFim', type: 'date' });
-  const cobrar = el('input', { type: 'checkbox' });
-  return [
-    el('div', {}, el('p', { class: 'pequeno suave' }, a.nome), el('h2', {}, 'Pausas nos treinos')),
-    erro && el('p', { class: 'erro', role: 'alert' }, erro),
-    !a.pausas.length && el('p', { class: 'suave' }, 'Nenhuma pausa registrada.'),
-    a.pausas.map((p) => {
-      const aberta = !p.fim || p.fim >= dados.hoje;
-      return el('div', { class: 'mensalidade' },
-        el('h3', {}, `${dataBR(p.inicio)} ${p.fim ? 'até ' + dataBR(p.fim) : 'em diante'}`),
-        el('p', { class: 'pequeno suave' }, p.cobrar ? 'Mensalidade mantida durante a pausa' : 'Sem mensalidade durante a pausa'),
-        el('div', { class: 'linha' },
-          aberta && p.inicio <= dados.hoje && el('button', {
-            class: 'link pequeno',
-            onclick: () => agirNaFolha(() => api(`alunos/${a.id}/pausas/${p.id}`, 'PUT', { inicio: p.inicio, fim: dados.hoje, cobrar: p.cobrar })),
-          }, 'Encerrar hoje'),
-          el('button', { class: 'link pequeno', onclick: () => agirNaFolha(() => api(`alunos/${a.id}/pausas/${p.id}`, 'DELETE')) }, 'Apagar pausa')
-        )
-      );
-    }),
-    el('form', {
-      class: 'coluna',
-      onsubmit: (e) => {
-        e.preventDefault();
-        agirNaFolha(() => api(`alunos/${a.id}/pausas`, 'POST', { inicio: inicio.value, fim: fim.value || null, cobrar: cobrar.checked }));
-      },
-    },
-      el('h3', {}, 'Nova pausa'),
-      el('div', { class: 'dupla' },
-        el('div', { class: 'campo' }, el('label', { for: 'pInicio' }, 'Início'), inicio),
-        el('div', { class: 'campo' }, el('label', { for: 'pFim' }, 'Término (opcional)'), fim)
-      ),
-      el('label', { class: 'marca' }, cobrar, el('span', {}, 'Manter a mensalidade durante a pausa')),
-      el('button', { class: 'botao menor', type: 'submit' }, 'Registrar pausa')
-    ),
-    el('button', { class: 'link', onclick: () => irPara('aluno') }, 'Voltar'),
   ];
 }
 
@@ -857,7 +882,7 @@ function desenhar() {
   const novos = dados.alunos.filter((a) => a.status === 'novo').length;
   const abas = [['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Arte'], ['conta', 'Conta']];
   const conteudo = { alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
-  const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario, pausas: folhaPausas };
+  const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario };
   montar(
     el('div', {}, el('p', { class: 'suave' }, 'Renova.AI'), el('h1', {}, 'Painel de ' + P())),
     el('nav', { class: 'abas', 'aria-label': 'Seções do painel' },
