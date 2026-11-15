@@ -556,6 +556,8 @@ function formularioPausa(a) {
       el('div', { class: 'campo' }, el('label', { for: 'pInicio' }, 'Início'), inicio),
       el('div', { class: 'campo' }, el('label', { for: 'pFim' }, 'Término (opcional)'), fim)
     ),
+    el('p', { class: 'pequeno suave' }, 'Sem término, a pausa vale até você encerrar. Mensalidade que vence durante a pausa não é cobrada, a menos que você marque a opção abaixo.'
+    ),
     el('label', { class: 'marca' }, cobrar, el('span', {}, 'Manter a mensalidade durante a pausa')),
     el('div', { class: 'dupla' },
       el('button', { class: 'botao menor', type: 'submit' }, 'Registrar'),
@@ -695,7 +697,7 @@ function folhaFormulario() {
     },
       rotulado('Nome completo', nome),
       rotulado('Celular / WhatsApp', whats),
-      rotulado('Início dos treinos (opcional)', inicio),
+      rotulado('Início dos treinos (opcional)', inicio, 'Serve para contar os meses de treino na trilha do aluno.'),
       el('div', { class: 'dupla' }, rotulado('Mensalidade (R$)', valor), rotulado('Dia do vencimento', dia)),
       !a && rotulado('Primeira mensalidade a controlar', primeira, 'Escolha "No mês que vem" se a deste mês já está resolvida.'),
       a && rotulado('Situação', situacao, 'Aluno inativo não gera novas mensalidades. Para uma parada temporária, registre uma pausa.'),
@@ -924,13 +926,14 @@ function abaConta() {
       el('div', { class: 'campo' }, el('label', { for: 'pixTipo' }, 'Tipo de chave'), tipo),
       campo('Chave Pix', { id: 'pixChave', name: 'pixChave', type: 'text', autocapitalize: 'none', value: p.pixChave || '' }),
       campo('Nome de quem recebe (como está no banco)', { id: 'pixNome', name: 'pixNome', type: 'text', maxlength: '60', value: p.pixNome || p.nome }),
-      campo('Cidade', { id: 'pixCidade', name: 'pixCidade', type: 'text', maxlength: '40', value: p.pixCidade || '' }),
-      el('h2', {}, 'Padrões'),
+      campo('Cidade', { id: 'pixCidade', name: 'pixCidade', type: 'text', maxlength: '40', value: p.pixCidade || '' }, 'input', 'O código Pix exige a cidade de quem recebe.'),
+      el('h2', {}, 'Sugestão para novos alunos'),
+      el('p', { class: 'pequeno suave' }, 'Estes valores só preenchem o cadastro de um aluno novo, para você digitar menos. Cada aluno pode ter mensalidade e dia próprios, e mudar aqui não altera quem já está cadastrado.'),
       el('div', { class: 'dupla' },
-        campo('Mensalidade padrão (R$)', { id: 'valorPadrao', name: 'valorPadrao', type: 'text', inputmode: 'decimal', placeholder: '250,00', value: p.valorPadrao ? (p.valorPadrao / 100).toFixed(2).replace('.', ',') : '' }),
-        campo('Dia de renovação', { id: 'diaPadrao', name: 'diaPadrao', type: 'number', min: '1', max: '28', value: p.diaPadrao || 5 })
+        campo('Mensalidade (R$)', { id: 'valorPadrao', name: 'valorPadrao', type: 'text', inputmode: 'decimal', placeholder: '250,00', value: p.valorPadrao ? (p.valorPadrao / 100).toFixed(2).replace('.', ',') : '' }),
+        campo('Dia de vencimento', { id: 'diaPadrao', name: 'diaPadrao', type: 'number', min: '1', max: '28', value: p.diaPadrao || 5 })
       ),
-      el('div', { class: 'campo' }, el('label', { for: 'tom' }, 'Tom das mensagens com IA'), tom),
+      el('div', { class: 'campo' }, el('label', { for: 'tom' }, 'Tom das mensagens com IA'), tom, el('p', { class: 'pequeno suave' }, 'Usado quando você pede para a IA reescrever um lembrete ou sugerir frases.')),
       el('h2', {}, 'Você'),
       campo('Seu nome', { id: 'nome', name: 'nome', type: 'text', required: true, value: p.nome }),
       el('p', { class: 'pequeno suave' }, 'E-mail: ' + p.email),

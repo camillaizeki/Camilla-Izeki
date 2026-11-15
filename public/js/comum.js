@@ -80,9 +80,10 @@ export function paraCentavos(texto) {
   return Number.isFinite(valor) ? valor : 0;
 }
 
-export function campo(rotulo, atributos, tag = 'input') {
+// "dica" é uma frase curta abaixo do campo, usada só onde o rótulo não basta.
+export function campo(rotulo, atributos, tag = 'input', dica = '') {
   const id = atributos.id;
-  return el('div', { class: 'campo' }, el('label', { for: id }, rotulo), el(tag, atributos));
+  return el('div', { class: 'campo' }, el('label', { for: id }, rotulo), el(tag, atributos), dica && el('p', { class: 'pequeno suave' }, dica));
 }
 
 export async function copiar(texto) {
