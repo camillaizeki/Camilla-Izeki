@@ -10,6 +10,7 @@ O personal acompanha tudo em um painel e envia lembretes pelo próprio WhatsApp.
 - **Aluno:** se cadastra pelo convite com nome e WhatsApp e ganha um link pessoal (`/a/código`), sem senha.
 - **Controle mensal:** cada aluno ativo ganha uma mensalidade por mês, com valor previsto e vencimento. No painel ela aparece como paga, pendente, atrasada ou em pausa.
 - **Recebimento:** o personal marca como pago em um toque, e pode ajustar a data e o valor. O faturamento usa a data real do recebimento, e cada mensalidade tem um único registro.
+- **Dashboard:** a tela Início mostra o recebido no mês, o previsto, o que falta vencer, o que está em atraso e a contagem de alunos ativos, pausados e inadimplentes, com navegação pelos últimos 12 meses.
 - **Pausas:** períodos com início e fim. Em cada pausa o personal escolhe se a mensalidade continua valendo.
 - **Lembretes:** o painel abre o WhatsApp do personal com a mensagem pronta para cada aluno. O tom com o aluno é sempre leve.
 - **Página do aluno:** trilha de meses, selos, Pix copia e cola e arte para compartilhar. O "Já paguei" do aluno é só um aviso; quem confirma é o personal.

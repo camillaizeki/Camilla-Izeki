@@ -88,8 +88,8 @@ h3 { font-family: var(--titulo); font-weight: 700; font-size: 16px; }
 .chip.lima { background: var(--lima); border-color: var(--tinta); }
 .chip.vazio { background: var(--branco); color: var(--suave); border-color: var(--suave); }
 
-.abas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.aba { min-height: 44px; padding: 0 4px; border: 1.5px solid var(--tinta); border-radius: 12px; background: var(--branco); color: var(--tinta); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+.abas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.aba { min-height: 44px; padding: 0 2px; border: 1.5px solid var(--tinta); border-radius: 12px; background: var(--branco); color: var(--tinta); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
 .aba[aria-pressed='true'] { background: var(--tinta); color: var(--branco); }
 
 .foto { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; background: var(--travado); }
@@ -129,3 +129,15 @@ a { color: var(--tinta); }
 .cartao.escuro .botao.lima { color: var(--tinta); }
 .mensalidade.pausa { padding: 12px; border: 1.5px dashed var(--suave); border-radius: 12px; }
 .mensalidade.pausa + .mensalidade { border-top: none; }
+
+/* Dashboard */
+.aba { font-size: 12px; }
+.mes-nav h2 { text-align: center; flex: 1; }
+.icone-botao { font: inherit; font-size: 22px; line-height: 1; color: var(--tinta); }
+.icone-botao:disabled { opacity: 0.35; cursor: default; }
+.grande { font-family: var(--titulo); font-weight: 700; font-size: 38px; line-height: 1.1; }
+.barra { height: 12px; border-radius: 999px; background: var(--travado); overflow: hidden; }
+.barra > div { height: 100%; border-radius: 999px; background: var(--tinta); }
+button.numero { text-align: left; font: inherit; color: inherit; cursor: pointer; }
+button.numero strong { text-decoration: underline; text-underline-offset: 3px; }
+.dupla .numero strong { font-size: 18px; }

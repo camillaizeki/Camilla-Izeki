@@ -2,7 +2,7 @@
 import { prepararBanco, FRASES_PADRAO } from '../lib/banco.js';
 import { gerarPix, normalizarChave } from '../lib/pix.js';
 import { calcular, fases, hojeBR, chaveMes, somaMes, mesesIniciais, mesesBase, marcoDe, dataISO } from '../lib/jornada.js';
-import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes } from '../lib/mensalidades.js';
+import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
 const MODELO_PADRAO = '@cf/meta/llama-3.1-8b-instruct';
@@ -429,6 +429,16 @@ async function rotear(request, env, partes) {
       hoje: dataISO(hoje),
       mesAtual: rotuloMes(chaveMes(hoje.ano, hoje.mes)),
       resumo: resumoDoMes(todos, hoje),
+      financeiro: {
+        meses: serieMensal(todos, hoje, 12),
+        ...posicaoAtual(todos, hoje),
+        alunos: {
+          ativos: saida.filter((x) => x.status === 'ativo' && !x.emPausa).length,
+          pausados: saida.filter((x) => x.status === 'ativo' && x.emPausa).length,
+          inadimplentes: saida.filter((x) => x.filtro === 'atrasado').length,
+          inativos: saida.filter((x) => x.status === 'inativo').length,
+        },
+      },
       alunos: saida,
       frases: frases.map((f) => ({ id: f.id, texto: f.texto, ativa: !!f.ativa, origem: f.origem })),
     });

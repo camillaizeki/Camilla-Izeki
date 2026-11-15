@@ -1,8 +1,9 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
 import { api, el, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
 
-let dados = null; // { personal, hoje, mesAtual, resumo, alunos, frases }
-let aba = 'alunos';
+let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
+let aba = 'inicio';
+let mesVisto = null; // mês mostrado no dashboard (posição em dados.financeiro.meses)
 let filtro = 'todos';
 let busca = '';
 let desfazer = null; // último pagamento marcado, para poder desfazer
@@ -135,6 +136,104 @@ function telaCodigo() {
         desenhar();
       },
     }, 'Já guardei, continuar'),
+  ];
+}
+
+// ---------- Início: dashboard financeiro ----------
+
+const variacao = (agora, antes) => {
+  const dif = agora - antes;
+  const sinal = dif > 0 ? '+' : dif < 0 ? '−' : '';
+  const pct = antes > 0 ? ` (${sinal}${Math.abs(Math.round((dif / antes) * 100))}%)` : '';
+  return `${sinal}${reais(Math.abs(dif))}${pct}`;
+};
+
+function irParaAlunos(novoFiltro) {
+  filtro = novoFiltro;
+  busca = '';
+  trocarAba('alunos');
+}
+
+function abaInicio() {
+  const f = dados.financeiro;
+  const ultimo = f.meses.length - 1;
+  if (mesVisto == null || mesVisto > ultimo) mesVisto = ultimo;
+  const m = f.meses[mesVisto];
+  const anterior = f.meses[mesVisto - 1];
+  const ehAtual = mesVisto === ultimo;
+  const nomeMes = m.rotulo.split(' ')[0];
+  const pct = m.previsto ? Math.min(100, Math.round((m.recebidoDoMes / m.previsto) * 100)) : 0;
+  const ativos = dados.alunos.filter((a) => a.status !== 'novo');
+  const fila = ativos.filter(precisaLembrar);
+  const vencemHoje = ativos.filter((a) => a.filtro === 'pendente' && a.dias === 0).length;
+  const avisaram = ativos.filter((a) => a.abertas.some((x) => x.informado)).length;
+  const mudarMes = (passo) => () => {
+    mesVisto += passo;
+    desenhar();
+  };
+  const bloco = (rotulo, valor, aoTocar) =>
+    el(aoTocar ? 'button' : 'div', { class: 'numero', onclick: aoTocar }, el('span', { class: 'pequeno suave' }, rotulo), el('strong', {}, valor));
+
+  let comparacao = null;
+  if (anterior) {
+    const nomeAnterior = anterior.rotulo.split(' ')[0];
+    comparacao = ehAtual
+      ? `${maiuscula(nomeAnterior)} fechou em ${reais(anterior.recebido)}.`
+      : m.recebido === anterior.recebido
+        ? `Mesmo valor de ${nomeAnterior}.`
+        : `${variacao(m.recebido, anterior.recebido)} em relação a ${nomeAnterior}.`;
+  }
+
+  return [
+    !dados.personal.pixChave && el('p', { class: 'aviso' }, 'Cadastre sua chave Pix na aba Conta para os alunos conseguirem pagar pelo link.'),
+    ehAtual && (f.alunos.inadimplentes > 0 || vencemHoje > 0 || avisaram > 0) && el('div', { class: 'cartao' },
+      el('h3', {}, 'Verificar hoje'),
+      el('p', { class: 'suave' }, [
+        f.alunos.inadimplentes ? `${f.alunos.inadimplentes} ${f.alunos.inadimplentes === 1 ? 'aluno com mensalidade vencida' : 'alunos com mensalidade vencida'}` : null,
+        vencemHoje ? `${vencemHoje} ${vencemHoje === 1 ? 'vence hoje' : 'vencem hoje'}` : null,
+        avisaram ? `${avisaram} ${avisaram === 1 ? 'aluno avisou que pagou' : 'alunos avisaram que pagaram'}` : null,
+      ].filter(Boolean).join(', ') + '. Confira se o pagamento entrou.'),
+      el('div', { class: 'dupla' },
+        el('button', { class: 'botao menor', onclick: () => irParaAlunos(f.alunos.inadimplentes && !avisaram ? 'atrasado' : avisaram ? 'todos' : 'pendente') }, 'Conferir'),
+        el('button', { class: 'botao claro menor', disabled: !fila.length, onclick: () => abrirFila(fila) }, fila.length ? `Lembrar (${fila.length})` : 'Lembretes em dia')
+      )
+    ),
+    el('div', { class: 'linha entre mes-nav' },
+      el('button', { class: 'icone-botao', 'aria-label': 'Mês anterior', disabled: mesVisto === 0, onclick: mudarMes(-1) }, '‹'),
+      el('h2', { 'aria-live': 'polite' }, maiuscula(m.rotulo)),
+      el('button', { class: 'icone-botao', 'aria-label': 'Próximo mês', disabled: ehAtual, onclick: mudarMes(1) }, '›')
+    ),
+    el('div', { class: 'cartao escuro' },
+      el('p', { class: 'suave' }, `Recebido em ${nomeMes}`),
+      el('p', { class: 'grande' }, reais(m.recebido)),
+      m.deOutrosMeses > 0 && el('p', { class: 'pequeno suave' }, `Inclui ${reais(m.deOutrosMeses)} de mensalidades de outros meses.`),
+      comparacao && el('p', { class: 'pequeno suave' }, comparacao)
+    ),
+    el('div', { class: 'cartao' },
+      el('div', { class: 'linha entre' }, el('h3', {}, `Mensalidades de ${nomeMes}`), el('strong', {}, m.total ? `${pct}%` : '')),
+      m.total
+        ? [
+            el('div', { class: 'barra', role: 'img', 'aria-label': `${pct}% do previsto já recebido` }, el('div', { style: `width: ${pct}%` })),
+            el('p', { class: 'pequeno suave' }, `${m.pagas} de ${m.total} pagas · ${reais(m.recebidoDoMes)} de ${reais(m.previsto)} previstos`),
+          ]
+        : el('p', { class: 'suave' }, 'Nenhuma mensalidade neste mês.')
+    ),
+    ehAtual && el('div', { class: 'dupla' },
+      bloco('A vencer', reais(f.aVencer), () => irParaAlunos('pendente')),
+      bloco('Em atraso', reais(f.emAtraso), () => irParaAlunos('atrasado'))
+    ),
+    ehAtual && el('div', { class: 'resumo' },
+      bloco('Ativos', String(f.alunos.ativos), () => irParaAlunos('todos')),
+      bloco('Pausados', String(f.alunos.pausados), () => irParaAlunos('pausado')),
+      bloco('Inadimplentes', String(f.alunos.inadimplentes), () => irParaAlunos('atrasado'))
+    ),
+    ehAtual && f.alunos.inativos > 0 && el('p', { class: 'pequeno suave centro' }, `${f.alunos.inativos} ${f.alunos.inativos === 1 ? 'aluno inativo' : 'alunos inativos'}.`),
+    ehAtual && !ativos.length && el('div', { class: 'cartao' },
+      el('h3', {}, 'Comece cadastrando seus alunos'),
+      el('p', { class: 'suave' }, 'Os números aparecem aqui assim que houver mensalidades.'),
+      el('button', { class: 'botao menor', onclick: () => irParaAlunos('todos') }, 'Ir para Alunos')
+    ),
+    !ehAtual && el('button', { class: 'link', onclick: () => { mesVisto = ultimo; desenhar(); } }, 'Voltar para o mês atual'),
   ];
 }
 
@@ -883,8 +982,8 @@ function desenhar() {
   if (!dados) return montar(telaConta());
   if (codigoNovo) return montar(telaCodigo());
   const novos = dados.alunos.filter((a) => a.status === 'novo').length;
-  const abas = [['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Arte'], ['conta', 'Conta']];
-  const conteudo = { alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
+  const abas = [['inicio', 'Início'], ['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Arte'], ['conta', 'Conta']];
+  const conteudo = { inicio: abaInicio, alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
   const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario };
   montar(
     el('div', {}, el('p', { class: 'suave' }, 'Renova.AI'), el('h1', {}, 'Painel de ' + P())),

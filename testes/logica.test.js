@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { crc16, gerarPix, normalizarChave } from '../lib/pix.js';
 import { calcular, fases, mesesIniciais, somaMes, seloAtual, marcoDe } from '../lib/jornada.js';
-import { faltantes, situacaoMensalidade, filtroDoAluno, resumoDoMes } from '../lib/mensalidades.js';
+import { faltantes, situacaoMensalidade, filtroDoAluno, resumoDoMes, serieMensal, posicaoAtual } from '../lib/mensalidades.js';
 
 test('crc16 bate com o valor de referência do padrão', () => {
   assert.equal(crc16('123456789'), '29B1');
@@ -130,4 +130,33 @@ test('meses de treino anteriores ao controle aparecem no histórico, sem virar d
   assert.equal(faltantes(antigo, [], [], hoje).filter((m) => m.status === 'anterior').length, 12);
   // Mês anterior já lançado pelo personal não é recriado
   assert.deepEqual(faltantes(anne, [{ mes: '2026-10', status: 'confirmado' }], [], hoje).map((m) => m.mes), ['2026-11']);
+});
+
+test('dashboard: faturamento pela data do recebimento, sem contar em dobro', () => {
+  const hoje = { ano: 2026, mes: 11, dia: 15 };
+  const pagamentos = [
+    // outubro pago em outubro
+    { mes: '2026-10', status: 'confirmado', valor_previsto: 25000, vencimento: '2026-10-05', recebido_em: '2026-10-04', valor_recebido: 25000 },
+    // outubro de outro aluno, recebido só em novembro, com desconto
+    { mes: '2026-10', status: 'confirmado', valor_previsto: 30000, vencimento: '2026-10-10', recebido_em: '2026-11-03', valor_recebido: 28000 },
+    // novembro: um pago, um vencido, um a vencer, um avisado pelo aluno (ainda não conta)
+    { mes: '2026-11', status: 'confirmado', valor_previsto: 25000, vencimento: '2026-11-05', recebido_em: '2026-11-05', valor_recebido: 25000 },
+    { mes: '2026-11', status: 'aberto', valor_previsto: 30000, vencimento: '2026-11-10' },
+    { mes: '2026-11', status: 'aberto', valor_previsto: 20000, vencimento: '2026-11-28' },
+    { mes: '2026-11', status: 'informado', valor_previsto: 40000, vencimento: '2026-11-20' },
+    // fora da conta: pausa, dispensa e mês anterior ao controle
+    { mes: '2026-11', status: 'pausa', valor_previsto: 50000, vencimento: '2026-11-05' },
+    { mes: '2026-11', status: 'dispensado', valor_previsto: 50000, vencimento: '2026-11-05' },
+    { mes: '2026-10', status: 'anterior', valor_previsto: 50000, vencimento: '2026-10-05' },
+  ];
+  const serie = serieMensal(pagamentos, hoje, 12);
+  assert.equal(serie.length, 12);
+  assert.equal(serie[0].mes, '2025-12');
+  const out = serie.at(-2);
+  const nov = serie.at(-1);
+  assert.deepEqual([out.recebido, out.previsto, out.total, out.pagas, out.recebidoDoMes], [25000, 55000, 2, 2, 53000]);
+  assert.deepEqual([nov.recebido, nov.deOutrosMeses, nov.previsto, nov.total, nov.pagas, nov.recebidoDoMes], [53000, 28000, 115000, 4, 1, 25000]);
+  // Cada real recebido aparece em um único mês
+  assert.equal(serie.reduce((t, m) => t + m.recebido, 0), 25000 + 28000 + 25000);
+  assert.deepEqual(posicaoAtual(pagamentos, hoje), { aVencer: 60000, emAtraso: 30000 });
 });

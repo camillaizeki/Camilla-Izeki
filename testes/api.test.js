@@ -142,6 +142,11 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.equal(r.corpo.resumo.pendente + r.corpo.resumo.atrasado, 0);
   assert.equal(r.corpo.alunos[0].filtro, 'pago');
   assert.equal(r.corpo.alunos[0].abertas.length, 0);
+  const fin = r.corpo.financeiro;
+  assert.equal(fin.meses.length, 12);
+  assert.deepEqual([fin.meses.at(-1).mes, fin.meses.at(-1).recebido, fin.meses.at(-1).previsto, fin.meses.at(-1).pagas, fin.meses.at(-1).total], [mesAtual, 25000, 25000, 1, 1]);
+  assert.deepEqual([fin.aVencer, fin.emAtraso], [0, 0]);
+  assert.deepEqual(fin.alunos, { ativos: 1, pausados: 0, inadimplentes: 0, inativos: 0 });
   r = await chamar('aluno/' + token, 'GET', null, false);
   assert.equal(r.corpo.meses, 6);
   assert.equal(r.corpo.selo.nome, 'Ouro');
