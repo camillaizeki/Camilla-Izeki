@@ -6,10 +6,13 @@ O personal acompanha tudo em um painel e envia lembretes pelo próprio WhatsApp.
 
 ## Como funciona
 
-- **Personal:** cria a conta em `/painel`, cadastra a chave Pix e envia o link de convite (`/c/seu-link`).
+- **Personal:** cria a conta em `/painel`, cadastra a chave Pix e os alunos, ou envia o link de convite (`/c/seu-link`).
 - **Aluno:** se cadastra pelo convite com nome e WhatsApp e ganha um link pessoal (`/a/código`), sem senha.
-- **Renovação:** o app monta o Pix copia e cola com o valor. O aluno paga direto ao personal e toca em "Já paguei"; o personal confirma no painel.
-- **Lembretes:** o painel abre o WhatsApp do personal com a mensagem pronta para cada aluno.
+- **Controle mensal:** cada aluno ativo ganha uma mensalidade por mês, com valor previsto e vencimento. No painel ela aparece como paga, pendente, atrasada ou em pausa.
+- **Recebimento:** o personal marca como pago em um toque, e pode ajustar a data e o valor. O faturamento usa a data real do recebimento, e cada mensalidade tem um único registro.
+- **Pausas:** períodos com início e fim. Em cada pausa o personal escolhe se a mensalidade continua valendo.
+- **Lembretes:** o painel abre o WhatsApp do personal com a mensagem pronta para cada aluno. O tom com o aluno é sempre leve.
+- **Página do aluno:** trilha de meses, selos, Pix copia e cola e arte para compartilhar. O "Já paguei" do aluno é só um aviso; quem confirma é o personal.
 - **IA:** sugere frases para a arte e reescreve o lembrete. O personal sempre aprova antes.
 
 Não há provedor de pagamento nem envio automático de mensagens: o custo de operação é zero.
@@ -28,7 +31,8 @@ Opcional: a variável `AI_MODEL` troca o modelo de IA (o padrão é `@cf/meta/ll
 
 - `public/`: telas (convite, aluno, painel) em HTML, CSS e JavaScript puro, sem etapa de build.
 - `src/`: servidor (Cloudflare Workers). A entrada é `src/worker.js` e a API fica em `src/api.js`.
-- `lib/`: regras da jornada (meses, selos, sequência), geração do Pix e estrutura do banco.
+- `lib/`: regras da jornada (meses, selos, sequência), mensalidades, geração do Pix e estrutura do banco.
+  As mudanças no banco só acrescentam tabelas e colunas; a conversão dos dados antigos roda uma vez e é coberta por teste.
 - `testes/`: testes automáticos e um servidor local com banco em memória.
 
 ## Testar no computador

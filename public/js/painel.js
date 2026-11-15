@@ -1,13 +1,16 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
 import { api, el, campo, meses, reais, paraCentavos, copiar, montar } from './comum.js';
 
-let dados = null; // { personal, alunos, frases }
-let aba = 'renovar';
+let dados = null; // { personal, hoje, mesAtual, resumo, alunos, frases }
+let aba = 'alunos';
+let filtro = 'todos';
+let busca = '';
+let desfazer = null; // último pagamento marcado, para poder desfazer
 let erro = '';
 let modoConta = 'entrar';
 let sugestoes = [];
 let codigoNovo = ''; // código de recuperação recém-gerado, mostrado uma vez
-let folha = null; // janela aberta por cima (fila de lembretes ou edição)
+let folha = null; // janela aberta por cima: fila de lembretes, aluno, pagamento, cadastro ou pausas
 
 const P = () => dados.personal.primeiroNome;
 const linkAluno = (a) => `${location.origin}/a/${a.token}`;
@@ -135,64 +138,148 @@ function telaCodigo() {
   ];
 }
 
-// ---------- A renovar ----------
+// ---------- Alunos e controle mensal ----------
 
-const CHIPS = {
-  informado: ['lima', () => 'Disse que pagou'],
-  renova_hoje: ['forte', () => 'Renova hoje'],
-  renova_em: ['neutro', (a) => (a.dias === 1 ? 'Renova amanhã' : `Renova em ${a.dias} dias`)],
-  aguardando: ['neutro', () => 'Aguardando renovação'],
-  pausado: ['vazio', () => 'Pausado'],
-  em_dia: ['vazio', () => 'Em dia'],
-};
-const ORDEM = ['informado', 'renova_hoje', 'renova_em', 'aguardando', 'pausado', 'em_dia'];
+const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+const maiuscula = (t) => t.charAt(0).toUpperCase() + t.slice(1);
+const paraCampoValor = (centavos) => (centavos ? (centavos / 100).toFixed(2).replace('.', ',') : '');
+const whatsLocal = (w) => String(w || '').replace(/^55/, '');
+
+const FILTROS = [['todos', 'Todos'], ['pago', 'Pagos'], ['pendente', 'Pendentes'], ['atrasado', 'Atrasados'], ['pausado', 'Pausados']];
+const ORDEM = ['atrasado', 'pendente', 'pago', 'em_dia', 'pausado', 'inativo'];
+const CHIP_MENSALIDADE = { pago: ['lima', 'Pago'], pendente: ['neutro', 'Pendente'], atrasado: ['forte', 'Atrasado'], pausado: ['vazio', 'Em pausa'], dispensado: ['vazio', 'Dispensada'] };
+
+function chipDoAluno(a) {
+  if (a.filtro === 'inativo') return ['vazio', 'Inativo'];
+  if (a.filtro === 'pausado') return ['vazio', 'Pausado'];
+  if (a.filtro === 'pago') return ['lima', 'Pago'];
+  if (a.filtro === 'em_dia') return ['vazio', 'Em dia'];
+  if (a.filtro === 'atrasado') {
+    const n = a.abertas.filter((m) => m.situacao === 'atrasado').length;
+    return ['forte', n > 1 ? `Atrasado · ${n} meses` : 'Atrasado'];
+  }
+  if (a.abertas[0]?.informado) return ['neutro', 'Disse que pagou'];
+  if (a.dias === 0) return ['neutro', 'Vence hoje'];
+  if (a.dias === 1) return ['neutro', 'Vence amanhã'];
+  if (a.dias > 1 && a.dias <= 5) return ['neutro', `Vence em ${a.dias} dias`];
+  return ['neutro', 'Pendente'];
+}
+
 const precisaLembrar = (a) => ['renova_hoje', 'renova_em', 'aguardando'].includes(a.situacao) && !a.lembradoHoje;
 
+// A mensagem ao aluno continua leve: fala da jornada, nunca de atraso.
 function textoLembrete(a) {
   const nome = primeiro(a.nome);
   const assinatura = `\n\nResumo automático do Renova.AI para alunos de ${P()}`;
-  if (a.status === 'pausado') {
+  if (a.emPausa || a.status === 'inativo') {
     return `Oi, ${nome}! Sua jornada de ${meses(a.meses)} com ${P()} está guardada. Quando quiser voltar, é só reativar por aqui: ${linkAluno(a)}${assinatura}`;
   }
   const marco = a.proximoMarco ? ` e ganhe o selo ${a.proximoMarco}` : '';
-  return `Oi, ${nome}! Você já tem ${meses(a.meses)} de treino com ${P()}. Veja seu cartão e desbloqueie ${a.nomeAlvo}${marco}: ${linkAluno(a)}${assinatura}`;
+  const jornada = a.meses > 0 ? `Você já tem ${meses(a.meses)} de treino com ${P()}.` : `Sua jornada com ${P()} está começando.`;
+  return `Oi, ${nome}! ${jornada} Veja seu cartão e desbloqueie ${a.nomeAlvo}${marco}: ${linkAluno(a)}${assinatura}`;
+}
+
+// Um toque marca como pago hoje, pelo valor previsto. Dá para desfazer logo em seguida.
+function marcarPago(a, m) {
+  return agirNaFolha(async () => {
+    await api(`alunos/${a.id}/mensalidades/${m.mes}`, 'POST', { acao: 'pagar' });
+    desfazer = { id: a.id, mes: m.mes, texto: `${maiuscula(m.rotulo.split(' ')[0])} de ${primeiro(a.nome)} marcado como pago.` };
+  });
 }
 
 function cartaoAluno(a) {
-  const [classe, rotulo] = CHIPS[a.situacao];
-  const acoes = [];
-  if (a.situacao === 'informado') {
-    acoes.push(
-      el('button', { class: 'botao menor', onclick: () => agir(() => api(`alunos/${a.id}/pagamento`, 'POST', { acao: 'confirmar' })) }, 'Confirmar Pix recebido'),
-      el('button', { class: 'link pequeno', onclick: () => agir(() => api(`alunos/${a.id}/pagamento`, 'POST', { acao: 'recusar' })) }, 'Ainda não recebi')
-    );
-  } else if (a.lembradoHoje && a.situacao !== 'em_dia') {
-    acoes.push(el('p', { class: 'pequeno suave' }, 'Lembrete enviado hoje pelo WhatsApp.'));
-  } else if (a.situacao !== 'em_dia') {
-    acoes.push(el('button', { class: 'botao claro menor', onclick: () => abrirFila([a]) }, a.status === 'pausado' ? 'Chamar de volta' : 'Lembrar pelo WhatsApp'));
-  }
+  const [classe, rotulo] = chipDoAluno(a);
+  const m = a.abertas[0];
   return el('div', { class: 'cartao' },
     el('div', { class: 'linha entre topo' },
-      el('div', {}, el('h3', {}, a.nome), el('p', { class: 'pequeno suave' }, meses(a.meses) + ' de treino')),
-      el('span', { class: 'chip ' + classe }, rotulo(a))
+      el('div', {},
+        el('h3', {}, a.nome),
+        el('p', { class: 'pequeno suave' }, a.valor ? `${reais(a.valor)} · vence dia ${a.diaVenc}` : 'Sem mensalidade definida')
+      ),
+      el('span', { class: 'chip ' + classe }, rotulo)
     ),
-    acoes,
-    el('button', { class: 'link pequeno', style: 'align-self: flex-start; min-height: 32px', onclick: () => abrirEdicao(a) }, 'Editar ou marcar como renovado')
+    a.abertas.length > 1 && el('p', { class: 'pequeno' }, `${a.abertas.length} mensalidades em aberto: ${reais(a.totalAberto)}`),
+    m?.informado && el('p', { class: 'pequeno suave' }, 'O aluno avisou que pagou. Confira antes de marcar.'),
+    m && el('button', { class: 'botao menor', onclick: () => marcarPago(a, m) }, `Marcar ${m.rotulo.split(' ')[0]} como pago`),
+    el('button', { class: 'link pequeno', style: 'align-self: flex-start; min-height: 32px', onclick: () => abrirAluno(a) }, 'Ver aluno, histórico e pausas')
   );
 }
 
-function abaRenovar() {
-  const ativos = dados.alunos.filter((a) => a.status !== 'novo').sort((x, y) => ORDEM.indexOf(x.situacao) - ORDEM.indexOf(y.situacao));
+function alunosFiltrados() {
+  const termo = busca.trim().toLowerCase();
+  return dados.alunos
+    .filter((a) => a.status !== 'novo')
+    .filter((a) => filtro === 'todos' || a.filtro === filtro)
+    .filter((a) => !termo || a.nome.toLowerCase().includes(termo))
+    .sort((x, y) => ORDEM.indexOf(x.filtro) - ORDEM.indexOf(y.filtro) || x.nome.localeCompare(y.nome));
+}
+
+function listaDeAlunos() {
+  const lista = alunosFiltrados();
+  if (!lista.length) return [el('p', { class: 'suave centro' }, busca ? 'Nenhum aluno com esse nome.' : 'Nenhum aluno nesta situação.')];
+  return lista.map(cartaoAluno);
+}
+
+function abaAlunos() {
+  const ativos = dados.alunos.filter((a) => a.status !== 'novo');
   const fila = ativos.filter(precisaLembrar);
-  const semPix = !dados.personal.pixChave;
+  const atrasados = ativos.filter((a) => a.filtro === 'atrasado').length;
+  const vencemHoje = ativos.filter((a) => a.filtro === 'pendente' && a.dias === 0).length;
+  const r = dados.resumo;
+  const lista = el('div', { class: 'coluna', id: 'lista' }, ativos.length ? listaDeAlunos() : null);
+  const numero = (rotulo, valor) => el('div', { class: 'numero' }, el('span', { class: 'pequeno suave' }, rotulo), el('strong', {}, reais(valor)));
+
   return [
-    semPix && el('p', { class: 'aviso' }, 'Cadastre sua chave Pix na aba Conta para os alunos conseguirem renovar.'),
-    fila.length > 0 && el('button', { class: 'botao', onclick: () => abrirFila(fila) }, `Lembrar todos (${fila.length})`),
+    !dados.personal.pixChave && el('p', { class: 'aviso' }, 'Cadastre sua chave Pix na aba Conta para os alunos conseguirem pagar pelo link.'),
+    desfazer && el('div', { class: 'aviso linha entre' },
+      el('span', {}, desfazer.texto),
+      el('button', {
+        class: 'link',
+        onclick: () => {
+          const ultimo = desfazer;
+          desfazer = null;
+          agir(() => api(`alunos/${ultimo.id}/mensalidades/${ultimo.mes}`, 'POST', { acao: 'reabrir' }));
+        },
+      }, 'Desfazer')
+    ),
+    (atrasados > 0 || vencemHoje > 0) && el('div', { class: 'cartao escuro' },
+      el('h3', {}, 'Verificar hoje'),
+      el('p', { class: 'suave' }, [
+        atrasados ? `${atrasados} ${atrasados === 1 ? 'aluno com mensalidade vencida' : 'alunos com mensalidade vencida'}` : null,
+        vencemHoje ? `${vencemHoje} ${vencemHoje === 1 ? 'vence hoje' : 'vencem hoje'}` : null,
+      ].filter(Boolean).join(' e ') + '. Confira se o pagamento entrou.'),
+      atrasados > 0 && filtro !== 'atrasado' && el('button', { class: 'botao lima menor', onclick: () => { filtro = 'atrasado'; desenhar(); } }, 'Ver atrasados')
+    ),
+    el('div', { class: 'resumo', 'aria-label': 'Resumo de ' + dados.mesAtual },
+      numero('Recebido em ' + dados.mesAtual.split(' ')[0], r.recebido),
+      numero('Pendente', r.pendente),
+      numero('Atrasado', r.atrasado)
+    ),
+    el('div', { class: 'dupla' },
+      el('button', { class: 'botao menor', disabled: !fila.length, onclick: () => abrirFila(fila) }, fila.length ? `Lembrar (${fila.length})` : 'Lembretes em dia'),
+      el('button', { class: 'botao claro menor', onclick: () => abrirFormulario(null) }, 'Novo aluno')
+    ),
     !ativos.length && el('div', { class: 'cartao' },
       el('h3', {}, 'Nenhum aluno ainda'),
-      el('p', { class: 'suave' }, 'Envie seu link de convite, que está na aba Novos. Cada aluno se cadastra sozinho e aparece aqui.')
+      el('p', { class: 'suave' }, 'Cadastre você mesmo em "Novo aluno" ou envie o link de convite da aba Novos para o aluno se cadastrar sozinho.')
     ),
-    ativos.map(cartaoAluno),
+    ativos.length > 0 && el('div', { class: 'campo' },
+      el('label', { for: 'busca' }, 'Buscar aluno'),
+      el('input', {
+        id: 'busca', type: 'search', placeholder: 'Nome do aluno', value: busca,
+        oninput: (e) => {
+          busca = e.target.value;
+          lista.replaceChildren(...listaDeAlunos());
+        },
+      })
+    ),
+    ativos.length > 0 && el('div', { class: 'filtros', role: 'group', 'aria-label': 'Filtrar alunos' },
+      FILTROS.map(([id, rotulo]) => {
+        const n = id === 'todos' ? ativos.length : ativos.filter((a) => a.filtro === id).length;
+        return el('button', { class: 'filtro', 'aria-pressed': String(filtro === id), onclick: () => { filtro = id; desenhar(); } }, `${rotulo} ${n}`);
+      })
+    ),
+    lista,
   ];
 }
 
@@ -220,7 +307,6 @@ function folhaFila() {
     if (f.lista[f.i]) f.texto = textoLembrete(f.lista[f.i]);
     desenhar();
   };
-  const whats = `https://wa.me/${a.whatsapp}?text=${encodeURIComponent(f.texto)}`;
   return [
     el('div', {},
       el('p', { class: 'pequeno suave' }, f.lista.length > 1 ? `${f.i + 1} de ${f.lista.length}` : 'Mensagem'),
@@ -246,7 +332,7 @@ function folhaFila() {
     }, f.ocupado ? 'Escrevendo…' : 'Reescrever com IA'),
     f.aviso && el('p', { class: 'erro', role: 'alert' }, f.aviso),
     el('a', {
-      class: 'botao', href: whats, target: '_blank', rel: 'noopener',
+      class: 'botao', href: `https://wa.me/${a.whatsapp}?text=${encodeURIComponent(f.texto)}`, target: '_blank', rel: 'noopener',
       onclick: (ev) => {
         // Usa o texto que estiver na caixa neste momento.
         ev.currentTarget.href = `https://wa.me/${a.whatsapp}?text=${encodeURIComponent(area.value)}`;
@@ -264,83 +350,245 @@ function folhaFila() {
 
 async function fecharFolha() {
   folha = null;
-  await carregar();
+  erro = '';
+  try {
+    await carregar();
+  } catch { /* mantém o que já está na tela */ }
   desenhar();
 }
 
-// ---------- Edição do aluno ----------
+// ---------- Aluno: histórico, pagamento, cadastro e pausas ----------
 
-function abrirEdicao(a) {
-  folha = { tipo: 'edicao', a, aviso: '' };
+// Executa uma ação e atualiza a lista e a janela aberta do aluno.
+async function agirNaFolha(funcao) {
+  erro = '';
+  desfazer = null;
+  try {
+    await funcao();
+    await carregar();
+    if (folha && folha.id) {
+      const a = dados.alunos.find((x) => x.id === folha.id);
+      if (!a) folha = null;
+      else folha.mensalidades = (await api(`alunos/${a.id}/mensalidades`)).mensalidades;
+    }
+  } catch (e) {
+    erro = e.message;
+  }
   desenhar();
 }
 
-function formularioAluno(a, rotuloBotao, aoSalvar) {
-  const valor = el('input', { id: 'valor' + a.id, type: 'text', inputmode: 'decimal', required: true, placeholder: '250,00', value: a.valor ? (a.valor / 100).toFixed(2).replace('.', ',') : '' });
-  const dia = el('input', { id: 'dia' + a.id, type: 'number', min: '1', max: '28', required: true, value: a.diaVenc || dados.personal.diaPadrao || 5 });
-  const base = el('input', { id: 'base' + a.id, type: 'number', min: '1', max: '600', required: true, value: a.baseMeses });
-  return el('form', {
-    class: 'coluna',
-    onsubmit: (evento) => {
-      evento.preventDefault();
-      const centavos = paraCentavos(valor.value);
-      if (centavos < 100) {
-        erro = 'Informe o valor da mensalidade.';
-        return desenhar();
-      }
-      aoSalvar({ valor: centavos, diaVenc: Number(dia.value), baseMeses: Number(base.value) });
-    },
-  },
-    el('div', { class: 'dupla' },
-      el('div', { class: 'campo' }, el('label', { for: valor.id }, 'Mensalidade (R$)'), valor),
-      el('div', { class: 'campo' }, el('label', { for: dia.id }, 'Dia de renovação'), dia)
+const alunoDaFolha = () => dados.alunos.find((x) => x.id === folha.id);
+const irPara = (tipo, extra = {}) => { erro = ''; folha = { ...folha, ...extra, tipo }; desenhar(); };
+
+async function abrirAluno(a) {
+  folha = { tipo: 'aluno', id: a.id, mensalidades: null };
+  desenhar();
+  await agirNaFolha(async () => {});
+}
+
+function linhaMensalidade(a, m) {
+  const [classe, rotulo] = CHIP_MENSALIDADE[m.situacao];
+  const detalhe = {
+    pago: `Recebido em ${dataBR(m.recebidoEm)} · ${reais(m.valorRecebido || 0)}`,
+    pendente: `Vence em ${dataBR(m.vencimento)} · ${reais(m.valor || 0)}`,
+    atrasado: `Venceu em ${dataBR(m.vencimento)} · ${reais(m.valor || 0)}`,
+    pausado: 'Aluno em pausa neste vencimento',
+    dispensado: 'Não será cobrada',
+  }[m.situacao];
+  const aberta = m.situacao === 'pendente' || m.situacao === 'atrasado';
+  return el('div', { class: 'mensalidade' },
+    el('div', { class: 'linha entre topo' },
+      el('div', {}, el('h3', {}, maiuscula(m.rotulo)), el('p', { class: 'pequeno suave' }, detalhe + (m.informado ? ' · aluno avisou que pagou' : ''))),
+      el('span', { class: 'chip ' + classe }, rotulo)
     ),
-    el('div', { class: 'campo' },
-      el('label', { for: base.id }, 'Meses de treino no cadastro'),
-      base,
-      el('p', { class: 'pequeno suave' }, 'É o ponto de partida da trilha. Ajuste se o aluno informou errado.')
-    ),
-    el('button', { class: 'botao menor', type: 'submit' }, rotuloBotao)
+    el('div', { class: 'linha' },
+      aberta && el('button', { class: 'botao menor', style: 'width: auto; padding: 0 20px', onclick: () => marcarPago(a, m) }, 'Pago'),
+      el('button', { class: 'link pequeno', onclick: () => irPara('pagar', { m }) }, aberta ? 'Outra data ou valor' : m.situacao === 'pago' ? 'Corrigir' : 'Alterar')
+    )
   );
 }
 
-function folhaEdicao() {
-  const a = folha.a;
-  const pausado = a.status === 'pausado';
-  const salvar = (campos, status = a.status) =>
-    agir(async () => {
-      await api('alunos/' + a.id, 'PUT', { ...campos, status });
-      folha = null;
-    });
-  const atuais = { valor: a.valor, diaVenc: a.diaVenc, baseMeses: a.baseMeses };
-  const podeMarcar = a.situacao !== 'em_dia' && a.valor > 0;
+function folhaAluno() {
+  const a = alunoDaFolha();
+  const [classe, rotulo] = chipDoAluno(a);
   return [
-    el('h2', {}, a.nome),
-    el('p', { class: 'pequeno suave' }, 'WhatsApp: +' + a.whatsapp),
+    el('div', { class: 'linha entre topo' },
+      el('div', {},
+        el('h2', {}, a.nome),
+        el('p', { class: 'pequeno suave' }, [`WhatsApp ${whatsLocal(a.whatsapp)}`, a.dataInicio ? `treina desde ${dataBR(a.dataInicio)}` : null].filter(Boolean).join(' · '))
+      ),
+      el('span', { class: 'chip ' + classe }, rotulo)
+    ),
     erro && el('p', { class: 'erro', role: 'alert' }, erro),
-    podeMarcar && el('button', {
-      class: 'botao lima menor',
-      onclick: () => agir(async () => {
-        await api(`alunos/${a.id}/pagamento`, 'POST', { acao: 'confirmar' });
-        folha = null;
-      }),
-    }, `Marcar ${a.nomeAlvo} como renovado`),
-    formularioAluno(a, 'Salvar', (campos) => salvar(campos)),
-    a.valor > 0 && el('button', { class: 'botao claro menor', onclick: () => salvar(atuais, pausado ? 'ativo' : 'pausado') }, pausado ? 'Reativar aluno' : 'Pausar aluno'),
+    el('div', { class: 'dupla' },
+      el('button', { class: 'botao claro menor', onclick: () => irPara('form') }, 'Editar cadastro'),
+      el('button', { class: 'botao claro menor', onclick: () => irPara('pausas') }, a.pausas.length ? `Pausas (${a.pausas.length})` : 'Registrar pausa')
+    ),
+    a.status !== 'inativo' && el('button', { class: 'botao claro menor', onclick: () => abrirFila([a]) }, 'Enviar lembrete pelo WhatsApp'),
+    el('h3', {}, 'Mensalidades'),
+    !folha.mensalidades && el('p', { class: 'suave' }, 'Carregando…'),
+    folha.mensalidades && !folha.mensalidades.length && el('p', { class: 'suave' }, 'Nenhuma mensalidade ainda. A primeira aparece no mês em que o controle começa.'),
+    folha.mensalidades && folha.mensalidades.map((m) => linhaMensalidade(a, m)),
     el('div', { class: 'linha entre' },
-      el('button', {
+      el('button', { class: 'link', onclick: () => irPara('pagar', { m: null }) }, 'Lançar outro mês'),
+      el('button', { class: 'link', onclick: fecharFolha }, 'Fechar')
+    ),
+  ];
+}
+
+function folhaPagar() {
+  const a = alunoDaFolha();
+  const m = folha.m;
+  const mes = el('input', { id: 'mesRef', type: 'month', required: true, max: dados.hoje.slice(0, 7), value: dados.hoje.slice(0, 7) });
+  const data = el('input', { id: 'dataRec', type: 'date', required: true, max: dados.hoje, value: m?.recebidoEm || dados.hoje });
+  const valor = el('input', { id: 'valorRec', type: 'text', inputmode: 'decimal', required: true, value: paraCampoValor(m?.valorRecebido || m?.valor || a.valor) });
+  const acao = (nome) => agirNaFolha(async () => {
+    await api(`alunos/${a.id}/mensalidades/${m.mes}`, 'POST', { acao: nome });
+    folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+  });
+  return [
+    el('div', {}, el('p', { class: 'pequeno suave' }, a.nome), el('h2', {}, m ? maiuscula(m.rotulo) : 'Lançar um recebimento')),
+    erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    el('form', {
+      class: 'coluna',
+      onsubmit: (e) => {
+        e.preventDefault();
+        const centavos = paraCentavos(valor.value);
+        if (centavos < 1) {
+          erro = 'Informe o valor recebido.';
+          return desenhar();
+        }
+        agirNaFolha(async () => {
+          await api(`alunos/${a.id}/mensalidades/${m ? m.mes : mes.value}`, 'POST', { acao: 'pagar', data: data.value, valor: centavos });
+          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+        });
+      },
+    },
+      !m && el('div', { class: 'campo' }, el('label', { for: 'mesRef' }, 'Mensalidade de qual mês'), mes),
+      el('div', { class: 'dupla' },
+        el('div', { class: 'campo' }, el('label', { for: 'dataRec' }, 'Recebido em'), data),
+        el('div', { class: 'campo' }, el('label', { for: 'valorRec' }, 'Valor recebido (R$)'), valor)
+      ),
+      el('p', { class: 'pequeno suave' }, 'O valor entra no faturamento do mês em que foi recebido.'),
+      el('button', { class: 'botao', type: 'submit' }, m?.situacao === 'pago' ? 'Salvar correção' : 'Salvar como pago')
+    ),
+    m && m.situacao !== 'pendente' && m.situacao !== 'atrasado' && el('button', { class: 'botao claro menor', onclick: () => acao('reabrir') }, m.situacao === 'pago' ? 'Desfazer pagamento' : 'Voltar a cobrar este mês'),
+    m && (m.situacao === 'pendente' || m.situacao === 'atrasado') && el('button', { class: 'botao claro menor', onclick: () => acao('dispensar') }, 'Dispensar esta mensalidade'),
+    el('button', { class: 'link', onclick: () => irPara('aluno') }, 'Voltar'),
+  ];
+}
+
+// Cadastro pelo personal (aluno novo) ou edição de um aluno existente.
+function abrirFormulario(a) {
+  erro = '';
+  folha = a ? { tipo: 'form', id: a.id } : { tipo: 'form', id: null };
+  desenhar();
+}
+
+function folhaFormulario() {
+  const a = folha.id ? alunoDaFolha() : null;
+  const p = dados.personal;
+  const nome = el('input', { id: 'fNome', type: 'text', required: true, autocomplete: 'off', value: a?.nome || '' });
+  const whats = el('input', { id: 'fWhats', type: 'tel', required: true, autocomplete: 'off', placeholder: '(11) 90000-0000', value: a ? whatsLocal(a.whatsapp) : '' });
+  const inicio = el('input', { id: 'fInicio', type: 'date', max: dados.hoje, value: a?.dataInicio || '' });
+  const valor = el('input', { id: 'fValor', type: 'text', inputmode: 'decimal', required: true, placeholder: '250,00', value: paraCampoValor(a?.valor || p.valorPadrao) });
+  const dia = el('input', { id: 'fDia', type: 'number', min: '1', max: '28', required: true, value: a?.diaVenc || p.diaPadrao || 5 });
+  const primeira = el('select', { id: 'fPrimeira' }, el('option', { value: 'atual' }, 'Neste mês'), el('option', { value: 'proximo' }, 'No mês que vem'));
+  const base = el('input', { id: 'fBase', type: 'number', min: '0', max: '600', value: a ? a.baseMeses : 0 });
+  const situacao = el('select', { id: 'fSituacao' }, el('option', { value: 'ativo' }, 'Ativo'), el('option', { value: 'inativo' }, 'Inativo (parou de treinar)'));
+  if (a) situacao.value = a.status === 'inativo' ? 'inativo' : 'ativo';
+  const rotulado = (rotulo, campoEl, dica) => el('div', { class: 'campo' }, el('label', { for: campoEl.id }, rotulo), campoEl, dica && el('p', { class: 'pequeno suave' }, dica));
+
+  return [
+    el('h2', {}, a ? 'Editar ' + primeiro(a.nome) : 'Novo aluno'),
+    erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    el('form', {
+      class: 'coluna',
+      onsubmit: (e) => {
+        e.preventDefault();
+        const centavos = paraCentavos(valor.value);
+        if (centavos < 100) {
+          erro = 'Informe o valor da mensalidade.';
+          return desenhar();
+        }
+        const campos = { nome: nome.value, whatsapp: whats.value, dataInicio: inicio.value || null, valor: centavos, diaVenc: Number(dia.value) };
+        agirNaFolha(async () => {
+          if (a) {
+            await api('alunos/' + a.id, 'PUT', { ...campos, baseMeses: Number(base.value), status: situacao.value });
+            folha = { tipo: 'aluno', id: a.id, mensalidades: null };
+          } else {
+            await api('alunos', 'POST', { ...campos, primeiroMes: primeira.value });
+            folha = null;
+            filtro = 'todos';
+          }
+        });
+      },
+    },
+      rotulado('Nome completo', nome),
+      rotulado('Celular / WhatsApp', whats),
+      rotulado('Início dos treinos (opcional)', inicio),
+      el('div', { class: 'dupla' }, rotulado('Mensalidade (R$)', valor), rotulado('Dia do vencimento', dia)),
+      !a && rotulado('Primeira mensalidade a controlar', primeira, 'Escolha "No mês que vem" se a deste mês já está resolvida.'),
+      a && rotulado('Situação', situacao, 'Aluno inativo não gera novas mensalidades. Para uma parada temporária, registre uma pausa.'),
+      a && rotulado('Meses de treino antes do controle', base, 'Só afeta a trilha e os selos que o aluno vê.'),
+      el('button', { class: 'botao', type: 'submit' }, a ? 'Salvar' : 'Cadastrar aluno')
+    ),
+    el('div', { class: 'linha entre' },
+      a ? el('button', {
         class: 'link',
         onclick: () => {
-          if (confirm(`Excluir ${a.nome} e todo o histórico? Isso não pode ser desfeito.`)) {
-            agir(async () => {
+          if (confirm(`Excluir ${a.nome} e todo o histórico de mensalidades? Isso não pode ser desfeito.`)) {
+            agirNaFolha(async () => {
               await api('alunos/' + a.id, 'DELETE');
               folha = null;
             });
           }
         },
-      }, 'Excluir aluno'),
-      el('button', { class: 'link', onclick: () => { folha = null; erro = ''; desenhar(); } }, 'Fechar')
+      }, 'Excluir aluno') : el('span'),
+      el('button', { class: 'link', onclick: () => (a ? irPara('aluno') : fecharFolha()) }, a ? 'Voltar' : 'Fechar')
     ),
+  ];
+}
+
+function folhaPausas() {
+  const a = alunoDaFolha();
+  const inicio = el('input', { id: 'pInicio', type: 'date', required: true, value: dados.hoje });
+  const fim = el('input', { id: 'pFim', type: 'date' });
+  const cobrar = el('input', { type: 'checkbox' });
+  return [
+    el('div', {}, el('p', { class: 'pequeno suave' }, a.nome), el('h2', {}, 'Pausas nos treinos')),
+    erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    !a.pausas.length && el('p', { class: 'suave' }, 'Nenhuma pausa registrada.'),
+    a.pausas.map((p) => {
+      const aberta = !p.fim || p.fim >= dados.hoje;
+      return el('div', { class: 'mensalidade' },
+        el('h3', {}, `${dataBR(p.inicio)} ${p.fim ? 'até ' + dataBR(p.fim) : 'em diante'}`),
+        el('p', { class: 'pequeno suave' }, p.cobrar ? 'Mensalidade mantida durante a pausa' : 'Sem mensalidade durante a pausa'),
+        el('div', { class: 'linha' },
+          aberta && p.inicio <= dados.hoje && el('button', {
+            class: 'link pequeno',
+            onclick: () => agirNaFolha(() => api(`alunos/${a.id}/pausas/${p.id}`, 'PUT', { inicio: p.inicio, fim: dados.hoje, cobrar: p.cobrar })),
+          }, 'Encerrar hoje'),
+          el('button', { class: 'link pequeno', onclick: () => agirNaFolha(() => api(`alunos/${a.id}/pausas/${p.id}`, 'DELETE')) }, 'Apagar pausa')
+        )
+      );
+    }),
+    el('form', {
+      class: 'coluna',
+      onsubmit: (e) => {
+        e.preventDefault();
+        agirNaFolha(() => api(`alunos/${a.id}/pausas`, 'POST', { inicio: inicio.value, fim: fim.value || null, cobrar: cobrar.checked }));
+      },
+    },
+      el('h3', {}, 'Nova pausa'),
+      el('div', { class: 'dupla' },
+        el('div', { class: 'campo' }, el('label', { for: 'pInicio' }, 'Início'), inicio),
+        el('div', { class: 'campo' }, el('label', { for: 'pFim' }, 'Término (opcional)'), fim)
+      ),
+      el('label', { class: 'marca' }, cobrar, el('span', {}, 'Manter a mensalidade durante a pausa')),
+      el('button', { class: 'botao menor', type: 'submit' }, 'Registrar pausa')
+    ),
+    el('button', { class: 'link', onclick: () => irPara('aluno') }, 'Voltar'),
   ];
 }
 
@@ -364,10 +612,31 @@ function abaNovos() {
     ),
     !novos.length && el('p', { class: 'suave centro' }, 'Nenhum cadastro aguardando confirmação.'),
     novos.map((a) => {
-      const detalhes = [a.mesInicio ? `Informou ${meses(a.baseMeses)} de treino` : 'Não informou quando começou', a.mesesPausa ? `${meses(a.mesesPausa)} de pausa` : null].filter(Boolean).join(' e ');
+      const detalhes = [a.mesInicio ? `Treina desde ${dataBR(a.dataInicio).slice(3)}` : 'Não informou quando começou', a.mesesPausa ? `${meses(a.mesesPausa)} de pausa` : null].filter(Boolean).join(', com ');
+      const valor = el('input', { id: 'valor' + a.id, type: 'text', inputmode: 'decimal', required: true, placeholder: '250,00', value: paraCampoValor(a.valor || dados.personal.valorPadrao) });
+      const dia = el('input', { id: 'dia' + a.id, type: 'number', min: '1', max: '28', required: true, value: a.diaVenc || dados.personal.diaPadrao || 5 });
+      const primeira = el('select', { id: 'primeira' + a.id }, el('option', { value: 'atual' }, 'Neste mês'), el('option', { value: 'proximo' }, 'No mês que vem'));
       return el('div', { class: 'cartao' },
-        el('div', {}, el('h3', {}, a.nome), el('p', { class: 'pequeno suave' }, `Cadastrou-se pelo seu link. ${detalhes}.`)),
-        formularioAluno(a, 'Confirmar aluno', (campos) => agir(() => api('alunos/' + a.id, 'PUT', { ...campos, status: 'ativo' }))),
+        el('div', {}, el('h3', {}, a.nome), el('p', { class: 'pequeno suave' }, `Cadastrou-se pelo seu link. ${detalhes}. WhatsApp ${whatsLocal(a.whatsapp)}.`)),
+        el('form', {
+          class: 'coluna',
+          onsubmit: (e) => {
+            e.preventDefault();
+            const centavos = paraCentavos(valor.value);
+            if (centavos < 100) {
+              erro = 'Informe o valor da mensalidade.';
+              return desenhar();
+            }
+            agir(() => api('alunos/' + a.id, 'PUT', { valor: centavos, diaVenc: Number(dia.value), primeiroMes: primeira.value, status: 'ativo' }));
+          },
+        },
+          el('div', { class: 'dupla' },
+            el('div', { class: 'campo' }, el('label', { for: valor.id }, 'Mensalidade (R$)'), valor),
+            el('div', { class: 'campo' }, el('label', { for: dia.id }, 'Dia do vencimento'), dia)
+          ),
+          el('div', { class: 'campo' }, el('label', { for: primeira.id }, 'Primeira mensalidade a controlar'), primeira),
+          el('button', { class: 'botao menor', type: 'submit' }, 'Confirmar aluno')
+        ),
         el('button', {
           class: 'link pequeno',
           style: 'align-self: flex-start',
@@ -564,6 +833,7 @@ function abaConta() {
 async function trocarAba(id) {
   aba = id;
   erro = '';
+  desfazer = null;
   desenhar();
   window.scrollTo(0, 0);
   try {
@@ -585,8 +855,9 @@ function desenhar() {
   if (!dados) return montar(telaConta());
   if (codigoNovo) return montar(telaCodigo());
   const novos = dados.alunos.filter((a) => a.status === 'novo').length;
-  const abas = [['renovar', 'A renovar'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Arte'], ['conta', 'Conta']];
-  const conteudo = { renovar: abaRenovar, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
+  const abas = [['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Arte'], ['conta', 'Conta']];
+  const conteudo = { alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
+  const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario, pausas: folhaPausas };
   montar(
     el('div', {}, el('p', { class: 'suave' }, 'Renova.AI'), el('h1', {}, 'Painel de ' + P())),
     el('nav', { class: 'abas', 'aria-label': 'Seções do painel' },
@@ -594,7 +865,7 @@ function desenhar() {
     ),
     erro && !folha && aba !== 'conta' && el('p', { class: 'erro', role: 'alert' }, erro),
     conteudo(),
-    folha && el('div', { class: 'folha-fundo' }, el('div', { class: 'folha', role: 'dialog', 'aria-modal': 'true' }, folha.tipo === 'fila' ? folhaFila() : folhaEdicao()))
+    folha && el('div', { class: 'folha-fundo' }, el('div', { class: 'folha', role: 'dialog', 'aria-modal': 'true' }, folhas[folha.tipo]()))
   );
 }
 

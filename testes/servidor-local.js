@@ -2,18 +2,11 @@
 // Uso: node testes/servidor-local.js  (abre em http://localhost:8788)
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { DatabaseSync } from 'node:sqlite';
+import { bancoFalso } from './banco-falso.js';
 import { atenderApi } from '../src/api.js';
 
-const sqlite = new DatabaseSync(':memory:');
-const preparar = (sql, valores = []) => ({
-  bind: (...v) => preparar(sql, v.map((x) => (x === undefined ? null : x))),
-  first: async () => sqlite.prepare(sql).get(...valores) ?? null,
-  all: async () => ({ results: sqlite.prepare(sql).all(...valores) }),
-  run: async () => ({ meta: { last_row_id: Number(sqlite.prepare(sql).run(...valores).lastInsertRowid) } }),
-});
 const env = {
-  DB: { prepare: (sql) => preparar(sql), batch: async (lista) => Promise.all(lista.map((p) => p.run())) },
+  DB: bancoFalso(),
   ADMIN_KEY: process.env.ADMIN_KEY || 'chave-local-de-teste-1234567890',
   AI: { run: async () => ({ response: 'Mais um mês sobrevivendo aos treinos\nMinhas pernas pediram férias, eu renovei\nTreino em dia, preguiça atrasada' }) },
 };

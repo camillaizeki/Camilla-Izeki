@@ -1,23 +1,14 @@
 // Testa a API de ponta a ponta com um banco SQLite em memória no lugar do D1.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DatabaseSync } from 'node:sqlite';
+import { bancoFalso } from './banco-falso.js';
 import { atenderApi } from '../src/api.js';
 import { crc16 } from '../lib/pix.js';
+import { hojeBR, chaveMes, somaMes, dataISO } from '../lib/jornada.js';
 
-function bancoFalso() {
-  const sqlite = new DatabaseSync(':memory:');
-  const preparar = (sql, valores = []) => ({
-    bind: (...v) => preparar(sql, v.map((x) => (x === undefined ? null : x))),
-    first: async () => sqlite.prepare(sql).get(...valores) ?? null,
-    all: async () => ({ results: sqlite.prepare(sql).all(...valores) }),
-    run: async () => {
-      const r = sqlite.prepare(sql).run(...valores);
-      return { meta: { last_row_id: Number(r.lastInsertRowid) } };
-    },
-  });
-  return { prepare: (sql) => preparar(sql), batch: async (lista) => Promise.all(lista.map((p) => p.run())) };
-}
+const hoje = hojeBR();
+const mesAtual = chaveMes(hoje.ano, hoje.mes);
+const hojeISO = dataISO(hoje);
 
 const env = { DB: bancoFalso() };
 let cookie = '';
@@ -96,6 +87,11 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.equal(r.status, 200);
   const token = r.corpo.token;
 
+  // WhatsApp repetido no mesmo personal é barrado, sem revelar o link do outro aluno
+  r = await chamar('convite/rafa', 'POST', { nome: 'Ana Clone', whatsapp: '11 97777 6666', aceite: true }, false);
+  assert.equal(r.status, 409);
+  assert.equal(r.corpo.token, undefined);
+
   // Aluno novo vê a trilha, mas ainda não pode pagar
   r = await chamar('aluno/' + token, 'GET', null, false);
   assert.equal(r.corpo.nome, 'Ana');
@@ -103,41 +99,135 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.equal(r.corpo.pix, null);
   assert.equal((await chamar(`aluno/${token}/paguei`, 'POST', {}, false)).status, 400);
 
-  // Personal confirma o cadastro
+  // Personal confirma o cadastro, com a primeira mensalidade neste mês
   r = await chamar('painel');
   const ana = r.corpo.alunos[0];
   assert.equal(ana.status, 'novo');
+  assert.equal(ana.filtro, 'novo');
   assert.equal(ana.whatsapp, '5511977776666');
-  assert.equal((await chamar('alunos/' + ana.id, 'PUT', { valor: 25000, diaVenc: 5, baseMeses: 5, status: 'ativo' })).status, 200);
+  assert.equal((await chamar('alunos/' + ana.id, 'PUT', { valor: 25000, diaVenc: 28, baseMeses: 5, primeiroMes: 'atual' })).status, 200);
 
-  // Agora o aluno tem Pix válido
+  // A mensalidade do mês nasce sozinha, pendente (ou atrasada, se hoje já passou do dia 28)
+  const esperado = hoje.dia > 28 ? 'atrasado' : 'pendente';
+  r = await chamar('painel');
+  let a1 = r.corpo.alunos[0];
+  assert.equal(a1.status, 'ativo');
+  assert.equal(a1.abertas.length, 1);
+  assert.equal(a1.abertas[0].mes, mesAtual);
+  assert.equal(a1.abertas[0].situacao, esperado);
+  assert.equal(a1.abertas[0].valor, 25000);
+  assert.equal(a1.filtro, esperado);
+  assert.equal(r.corpo.resumo[esperado], 25000);
+  assert.equal(r.corpo.resumo.recebido, 0);
+  assert.equal((await chamar('painel')).corpo.alunos[0].abertas.length, 1); // abrir de novo não duplica
+
+  // O aluno tem Pix válido e avisa que pagou; isso não entra no faturamento
   r = await chamar('aluno/' + token, 'GET', null, false);
   assert.equal(r.corpo.meses, 5);
   assert.ok(r.corpo.pix.includes('+5511988887777'));
   assert.ok(r.corpo.pix.includes('5406250.00'));
   assert.equal(crc16(r.corpo.pix.slice(0, -4)), r.corpo.pix.slice(-4));
   assert.ok(r.corpo.frases.every((f) => !f.includes('{personal}')));
-
-  // Aluno informa o pagamento; personal confirma
   assert.equal((await chamar(`aluno/${token}/paguei`, 'POST', {}, false)).status, 200);
   assert.equal((await chamar(`aluno/${token}/paguei`, 'POST', {}, false)).status, 200); // repetir não quebra
   r = await chamar('painel');
   assert.equal(r.corpo.alunos[0].situacao, 'informado');
-  assert.equal((await chamar(`alunos/${ana.id}/pagamento`, 'POST', { acao: 'confirmar' })).status, 200);
+  assert.equal(r.corpo.alunos[0].abertas[0].informado, true);
+  assert.equal(r.corpo.resumo.recebido, 0);
+
+  // Personal marca como pago em um toque: entra no recebido do mês e a trilha anda
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mesAtual}`, 'POST', { acao: 'pagar' })).status, 200);
+  r = await chamar('painel');
+  assert.equal(r.corpo.resumo.recebido, 25000);
+  assert.equal(r.corpo.resumo.pendente + r.corpo.resumo.atrasado, 0);
+  assert.equal(r.corpo.alunos[0].filtro, 'pago');
+  assert.equal(r.corpo.alunos[0].abertas.length, 0);
   r = await chamar('aluno/' + token, 'GET', null, false);
   assert.equal(r.corpo.meses, 6);
   assert.equal(r.corpo.selo.nome, 'Ouro');
 
-  // Lembrete marcado, pausa e reativação
+  // Marcar de novo não conta duas vezes; dá para corrigir valor e data
+  await chamar(`alunos/${ana.id}/mensalidades/${mesAtual}`, 'POST', { acao: 'pagar' });
+  assert.equal((await chamar('painel')).corpo.resumo.recebido, 25000);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mesAtual}`, 'POST', { acao: 'pagar', valor: 20000, data: hojeISO })).status, 200);
+  assert.equal((await chamar('painel')).corpo.resumo.recebido, 20000);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mesAtual}`, 'POST', { acao: 'pagar', data: '2999-01-01' })).status, 400);
+
+  // Mensalidade de mês anterior recebida hoje entra no faturamento de hoje
+  const mesPassado = somaMes(mesAtual, -1);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mesPassado}`, 'POST', { acao: 'pagar', valor: 25000 })).status, 200);
+  assert.equal((await chamar('painel')).corpo.resumo.recebido, 45000);
+  r = await chamar(`alunos/${ana.id}/mensalidades`);
+  assert.deepEqual(r.corpo.mensalidades.map((m) => m.mes), [mesAtual, mesPassado]);
+  assert.equal(r.corpo.mensalidades[0].valorRecebido, 20000);
+  assert.equal(r.corpo.mensalidades[0].recebidoEm, hojeISO);
+
+  // Reabrir desfaz o pagamento; dispensar tira a mensalidade da conta
+  await chamar(`alunos/${ana.id}/mensalidades/${mesPassado}`, 'POST', { acao: 'dispensar' });
+  await chamar(`alunos/${ana.id}/mensalidades/${mesAtual}`, 'POST', { acao: 'reabrir' });
+  r = await chamar('painel');
+  assert.equal(r.corpo.resumo.recebido, 0);
+  assert.equal(r.corpo.alunos[0].abertas.length, 1);
+  assert.equal(r.corpo.alunos[0].filtro, esperado);
+
+  // Mudar o valor atualiza a mensalidade que ainda está no prazo
+  await chamar('alunos/' + ana.id, 'PUT', { valor: 30000, diaVenc: 28 });
+  r = await chamar('painel');
+  if (esperado === 'pendente') assert.equal(r.corpo.alunos[0].abertas[0].valor, 30000);
+  assert.equal(r.corpo.alunos[0].valor, 30000);
+
+  // Lembrete marcado
   assert.equal((await chamar(`alunos/${ana.id}/lembrado`, 'POST', {})).status, 200);
   assert.equal((await chamar('painel')).corpo.alunos[0].lembradoHoje, true);
-  await chamar('alunos/' + ana.id, 'PUT', { valor: 25000, diaVenc: 5, baseMeses: 5, status: 'pausado' });
-  assert.equal((await chamar('painel')).corpo.alunos[0].situacao, 'pausado');
+
+  // Pausa sem cobrança: a mensalidade em aberto que vence dentro dela deixa de ser devida
+  assert.equal((await chamar(`alunos/${ana.id}/pausas`, 'POST', { inicio: '2020-13-40' })).status, 400);
+  assert.equal((await chamar(`alunos/${ana.id}/pausas`, 'POST', { inicio: mesAtual + '-01', cobrar: false })).status, 200);
+  r = await chamar('painel');
+  a1 = r.corpo.alunos[0];
+  assert.equal(a1.emPausa, true);
+  assert.equal(a1.filtro, 'pausado');
+  assert.equal(a1.abertas.length, 0);
+  assert.equal(a1.pausas.length, 1);
+  assert.equal((await chamar('aluno/' + token, 'GET', null, false)).corpo.status, 'pausado');
+  assert.equal((await chamar(`alunos/${ana.id}/pausas`, 'POST', { inicio: mesAtual + '-10' })).status, 400); // sobreposta
+
+  // Pausa com cobrança mantém a mensalidade; apagar a pausa também devolve
+  await chamar(`alunos/${ana.id}/pausas/${a1.pausas[0].id}`, 'PUT', { inicio: mesAtual + '-01', cobrar: true });
+  assert.equal((await chamar('painel')).corpo.alunos[0].abertas.length, 1);
+  await chamar(`alunos/${ana.id}/pausas/${a1.pausas[0].id}`, 'PUT', { inicio: mesAtual + '-01', cobrar: false });
+  assert.equal((await chamar('painel')).corpo.alunos[0].abertas.length, 0);
+  await chamar(`alunos/${ana.id}/pausas/${a1.pausas[0].id}`, 'DELETE');
+  r = await chamar('painel');
+  assert.equal(r.corpo.alunos[0].emPausa, false);
+  assert.equal(r.corpo.alunos[0].abertas.length, 1);
+
+  // Inativo: sai dos filtros de cobrança e não gera mensalidade nova
+  await chamar('alunos/' + ana.id, 'PUT', { valor: 30000, diaVenc: 28, status: 'inativo' });
+  assert.equal((await chamar('painel')).corpo.alunos[0].filtro, 'inativo');
+  await chamar('alunos/' + ana.id, 'PUT', { valor: 30000, diaVenc: 28, status: 'ativo' });
+
+  // Cadastro feito pelo próprio personal, com a primeira mensalidade só no mês que vem
+  assert.equal((await chamar('alunos', 'POST', { nome: 'Xu', whatsapp: '11977776666', valor: 20000, diaVenc: 10 })).status, 409); // duplicado
+  r = await chamar('alunos', 'POST', { nome: 'Bruno Lima', whatsapp: '(11) 96666-5555', valor: 20000, diaVenc: 10, dataInicio: mesPassado + '-01', primeiroMes: 'proximo' });
+  assert.equal(r.status, 200);
+  r = await chamar('painel');
+  const bruno = r.corpo.alunos.find((x) => x.nome === 'Bruno Lima');
+  assert.equal(bruno.status, 'ativo');
+  assert.equal(bruno.abertas.length, 0);
+  assert.equal(bruno.filtro, 'em_dia');
+  assert.equal(bruno.meses, 2); // mês passado e este, antes da primeira mensalidade controlada
+  assert.equal(bruno.dataInicio, mesPassado + '-01');
+  assert.equal((await chamar('alunos/' + bruno.id, 'PUT', { valor: 20000, diaVenc: 10, whatsapp: '11977776666' })).status, 409);
+  assert.equal((await chamar('alunos/' + bruno.id, 'PUT', { valor: 20000, diaVenc: 10, nome: 'Bruno L. Lima' })).status, 200);
 
   // Outro personal não mexe no aluno do Rafa
   const cookieRafa = cookie;
   await chamar('conta/criar', 'POST', { nome: 'Bia', email: 'bia@exemplo.com', senha: 'senha-forte-2', slug: 'bia' });
   assert.equal((await chamar('alunos/' + ana.id, 'DELETE')).status, 404);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades`)).status, 404);
+  assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mesAtual}`, 'POST', { acao: 'pagar' })).status, 404);
+  assert.equal((await chamar('painel')).corpo.alunos.length, 0);
   cookie = cookieRafa;
 
   // Frases

@@ -117,3 +117,13 @@ canvas.arte { width: 252px; height: 448px; border-radius: 20px; align-self: cent
 .folha { width: 100%; max-width: 460px; max-height: 92vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 24px; border-radius: 24px 24px 0 0; background: var(--fundo); }
 
 a { color: var(--tinta); }
+
+/* Controle mensal */
+.resumo { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.numero { display: flex; flex-direction: column; gap: 2px; padding: 12px; border-radius: 12px; background: var(--branco); border: 1px solid var(--linha); }
+.numero strong { font-family: var(--titulo); font-size: 15px; white-space: nowrap; }
+.filtros { display: flex; flex-wrap: wrap; gap: 6px; }
+.filtro { min-height: 44px; padding: 0 12px; border: 1.5px solid var(--tinta); border-radius: 999px; background: var(--branco); color: var(--tinta); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+.filtro[aria-pressed='true'] { background: var(--tinta); color: var(--branco); }
+.mensalidade { display: flex; flex-direction: column; gap: 8px; padding: 12px 0; border-top: 1px solid var(--linha); }
+.cartao.escuro .botao.lima { color: var(--tinta); }

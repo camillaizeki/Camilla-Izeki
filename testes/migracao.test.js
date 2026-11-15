@@ -1,0 +1,64 @@
+// Garante que os dados da primeira versão são convertidos sem perda.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { bancoFalso } from './banco-falso.js';
+import { prepararBanco, esquecerBanco } from '../lib/banco.js';
+
+test('banco da primeira versão é convertido para o controle de mensalidades', async () => {
+  const db = bancoFalso();
+  // Estrutura exatamente como estava publicada antes desta evolução.
+  db.sqlite.exec(`
+    CREATE TABLE personais (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT NOT NULL UNIQUE, nome TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
+      senha_hash TEXT NOT NULL, senha_sal TEXT NOT NULL, pix_tipo TEXT, pix_chave TEXT, pix_nome TEXT, pix_cidade TEXT, valor_padrao INTEGER,
+      dia_padrao INTEGER DEFAULT 5, tom TEXT DEFAULT 'zoeiro', foto TEXT, criado_em TEXT NOT NULL, recuperacao_hash TEXT);
+    CREATE TABLE sessoes (token TEXT PRIMARY KEY, personal_id INTEGER NOT NULL, expira_em INTEGER NOT NULL);
+    CREATE TABLE alunos (id INTEGER PRIMARY KEY AUTOINCREMENT, personal_id INTEGER NOT NULL, token TEXT NOT NULL UNIQUE, nome TEXT NOT NULL,
+      whatsapp TEXT NOT NULL, mes_inicio TEXT, meses_pausa INTEGER DEFAULT 0, base_meses INTEGER NOT NULL DEFAULT 1, seq_base INTEGER NOT NULL DEFAULT 0,
+      mes_cadastro TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'novo', valor INTEGER, dia_venc INTEGER, lembrado_em TEXT, criado_em TEXT NOT NULL);
+    CREATE TABLE pagamentos (id INTEGER PRIMARY KEY AUTOINCREMENT, aluno_id INTEGER NOT NULL, mes TEXT NOT NULL, status TEXT NOT NULL,
+      informado_em TEXT, confirmado_em TEXT, UNIQUE (aluno_id, mes));
+    CREATE TABLE frases (id INTEGER PRIMARY KEY AUTOINCREMENT, personal_id INTEGER NOT NULL, texto TEXT NOT NULL, ativa INTEGER NOT NULL DEFAULT 1, origem TEXT NOT NULL DEFAULT 'padrao');
+    INSERT INTO personais (slug, nome, email, senha_hash, senha_sal, criado_em) VALUES ('rafa', 'Rafa', 'rafa@exemplo.com', 'h', 's', '2026-11-14');
+    INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, base_meses, seq_base, mes_cadastro, status, valor, dia_venc, criado_em) VALUES
+      (1, 't1', 'Ana', '5511911111111', '2026-07', 5, 5, '2026-11', 'ativo', 25000, 5, '2026-11-14'),
+      (1, 't2', 'Carla', '5511922222222', NULL, 1, 1, '2026-12', 'pausado', 30000, 10, '2026-12-02'),
+      (1, 't3', 'Novo', '5511933333333', NULL, 1, 1, '2026-11', 'novo', NULL, 5, '2026-11-14');
+    INSERT INTO pagamentos (aluno_id, mes, status, informado_em, confirmado_em) VALUES
+      (1, '2026-12', 'confirmado', NULL, '2026-12-04T13:00:00.000Z'),
+      (1, '2027-01', 'informado', '2027-01-05T10:00:00.000Z', NULL);
+  `);
+
+  esquecerBanco();
+  await prepararBanco(db);
+  const um = (sql) => db.sqlite.prepare(sql).get();
+
+  // Alunos e pagamentos continuam todos lá
+  assert.equal(um('SELECT COUNT(*) AS n FROM alunos').n, 3);
+  assert.equal(um('SELECT COUNT(*) AS n FROM pagamentos').n, 2);
+
+  // Primeiro mês controlado e data de início
+  assert.deepEqual({ ...um('SELECT mes_controle, data_inicio, status FROM alunos WHERE id = 1') }, { mes_controle: '2026-12', data_inicio: '2026-07-01', status: 'ativo' });
+  assert.equal(um('SELECT mes_controle FROM alunos WHERE id = 2').mes_controle, '2027-01');
+  assert.equal(um('SELECT mes_controle FROM alunos WHERE id = 3').mes_controle, null); // "novo" define ao ser confirmado
+
+  // "Pausado" vira uma pausa em aberto, sem cobrança
+  assert.equal(um('SELECT status FROM alunos WHERE id = 2').status, 'ativo');
+  const pausa = um('SELECT aluno_id, fim, cobrar FROM pausas');
+  assert.deepEqual({ ...pausa }, { aluno_id: 2, fim: null, cobrar: 0 });
+
+  // Pagamento confirmado ganha valor e data de recebimento; o informado segue em aberto
+  assert.deepEqual(
+    { ...um("SELECT valor_previsto, vencimento, recebido_em, valor_recebido FROM pagamentos WHERE mes = '2026-12'") },
+    { valor_previsto: 25000, vencimento: '2026-12-05', recebido_em: '2026-12-04', valor_recebido: 25000 }
+  );
+  assert.deepEqual(
+    { ...um("SELECT valor_previsto, vencimento, recebido_em FROM pagamentos WHERE mes = '2027-01'") },
+    { valor_previsto: 25000, vencimento: '2027-01-05', recebido_em: null }
+  );
+
+  // Rodar de novo não repete a conversão (não cria outra pausa)
+  esquecerBanco();
+  await prepararBanco(db);
+  assert.equal(um('SELECT COUNT(*) AS n FROM pausas').n, 1);
+  esquecerBanco();
+});

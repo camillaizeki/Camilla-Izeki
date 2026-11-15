@@ -35,7 +35,7 @@ function telaDesbloqueio() {
   return el('div', { class: 'tela-escura' },
     selo(d.meses, 148),
     s.nome && el('p', { class: 'rotulo' }, 'Selo ' + s.nome + ' desbloqueado'),
-    el('h1', { style: 'font-size: 32px' }, `${d.nome}, você já tem ${meses(d.meses)} de treino`),
+    el('h1', { style: 'font-size: 32px' }, d.meses > 0 ? `${d.nome}, você já tem ${meses(d.meses)} de treino` : `${d.nome}, sua jornada com ${P()} começa agora`),
     el('p', { style: 'color: #C9CED8' }, `${s.proximo.faltam === 1 ? 'Falta 1 mês' : 'Faltam ' + s.proximo.faltam + ' meses'} para o selo ${s.proximo.nome}.`),
     el('button', { class: 'botao lima', style: 'margin-top: 12px', onclick: () => ir('trilha') }, 'Ver minha trilha')
   );
@@ -75,7 +75,7 @@ function telaTrilha() {
     el('div', { class: 'linha entre topo' },
       el('div', {},
         el('p', { class: 'suave' }, 'Oi, ' + d.nome),
-        el('h1', { style: 'font-size: 26px' }, `${meses(d.meses)} treinando com ${P()}`)
+        el('h1', { style: 'font-size: 26px' }, d.meses > 0 ? `${meses(d.meses)} treinando com ${P()}` : `Sua jornada com ${P()}`)
       ),
       el('button', { class: 'icone-botao', 'aria-label': 'Compartilhar conquista', onclick: () => ir('arte') }, icone('compartilhar', { tamanho: 20 }))
     ),
@@ -228,7 +228,7 @@ async function desenharArte(canvas) {
   // Rodapé
   ctx.fillStyle = '#C8F03C';
   ctx.font = '600 44px Inter, sans-serif';
-  ctx.fillText(`${meses(mesesNaArte())} de treino com ${P()}`.toUpperCase(), 80, 1790);
+  ctx.fillText((mesesNaArte() > 0 ? `${meses(mesesNaArte())} de treino com ${P()}` : `Treinando com ${P()}`).toUpperCase(), 80, 1790);
   ctx.fillStyle = '#C9CED8';
   ctx.font = '500 34px Inter, sans-serif';
   ctx.fillText('Renova.AI', 80, 1850);
