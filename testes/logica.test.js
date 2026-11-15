@@ -82,3 +82,30 @@ test('trilha mostra conquistadas, a próxima e as bloqueadas', () => {
   assert.equal(f[5].mes, 'dezembro');
   assert.equal(f[6].estado, 'travada');
 });
+
+test('lançar pagamentos de meses antigos não conta os meses em dobro', () => {
+  // Treina desde janeiro; o controle começou em novembro; o personal lançou janeiro a novembro como pagos.
+  const camilla = { mes_inicio: '2026-01', base_meses: 10, seq_base: 10, mes_cadastro: '2026-11', mes_controle: '2026-11', dia_venc: 5, status: 'ativo' };
+  const pagos = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11'].map((m) => ({ mes: '2026-' + m, status: 'confirmado', vencimento: `2026-${m}-05` }));
+  const c = calcular(camilla, pagos, { ano: 2026, mes: 11, dia: 15 });
+  assert.equal(c.meses, 11);
+  assert.equal(c.sequencia, 11);
+  // Antes de pagar novembro são 10: janeiro a outubro.
+  assert.equal(calcular(camilla, pagos.slice(0, 10), { ano: 2026, mes: 11, dia: 15 }).meses, 10);
+});
+
+test('mês em pausa não entra na contagem de treino', () => {
+  const aluno2 = { mes_inicio: '2026-01', mes_cadastro: '2026-11', mes_controle: '2026-11', dia_venc: 5, status: 'ativo' };
+  const hoje = { ano: 2026, mes: 11, dia: 15 };
+  const pago = [{ mes: '2026-11', status: 'confirmado', vencimento: '2026-11-05' }];
+  // Pausa em março e abril: de janeiro a outubro sobram 8, mais novembro pago.
+  const pausaAntiga = [{ inicio: '2026-03-01', fim: '2026-04-30', cobrar: 0 }];
+  const c = calcular(aluno2, pago, hoje, pausaAntiga);
+  assert.equal(c.meses, 9);
+  assert.equal(c.sequencia, 7); // maio a novembro, depois da pausa
+  // Mês pago durante uma pausa com mensalidade mantida também não conta como treino.
+  const pausaAgora = [{ inicio: '2026-11-01', fim: null, cobrar: 1 }];
+  assert.equal(calcular(aluno2, pago, hoje, pausaAgora).meses, 10);
+  // Pausa declarada no autocadastro, sem datas, é descontada.
+  assert.equal(calcular({ ...aluno2, meses_pausa: 2 }, pago, hoje).meses, 9);
+});

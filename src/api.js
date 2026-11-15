@@ -512,7 +512,11 @@ async function rotear(request, env, partes) {
         base = mesesBase(mesInicio, aluno.mes_cadastro, mesControle, aluno.meses_pausa);
         seqBase = aluno.meses_pausa > 0 ? 0 : base;
       }
-      if (d.baseMeses != null) {
+      if (mesInicio) {
+        // Com data de início, os meses de treino saem da própria data.
+        base = mesesBase(mesInicio, aluno.mes_cadastro, mesControle, aluno.meses_pausa);
+        seqBase = aluno.meses_pausa > 0 ? 0 : base;
+      } else if (d.baseMeses != null) {
         const informada = inteiro(d.baseMeses, 0, 600, 'meses de treino');
         if (informada !== base) {
           base = informada;

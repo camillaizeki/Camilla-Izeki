@@ -1,5 +1,5 @@
 // Tela de convite: o aluno se cadastra pelo link do personal (/c/<link>).
-import { api, el, campo, montar } from './comum.js';
+import { api, el, campo, montar, mascararWhats } from './comum.js';
 
 const slug = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] || '');
 let personal = null;
@@ -43,6 +43,10 @@ function desenhar(anterior) {
     campo('Quantos meses parado, no total?', { id: 'pausaMeses', name: 'pausaMeses', type: 'number', min: '1', inputmode: 'numeric', placeholder: '2' })
   );
 
+  queueMicrotask(() => {
+    const campoWhats = document.getElementById('whats');
+    if (campoWhats) mascararWhats(campoWhats);
+  });
   montar(
     el('div', { class: 'coluna', style: 'align-items: flex-start' },
       foto(),
@@ -51,7 +55,7 @@ function desenhar(anterior) {
     ),
     el('form', { class: 'coluna cresce', style: 'gap: 14px', onsubmit: enviar },
       campo('Seu nome', { id: 'nome', name: 'nome', type: 'text', required: true, autocomplete: 'name', value: valores.nome }),
-      campo('Seu WhatsApp', { id: 'whats', name: 'whats', type: 'tel', required: true, autocomplete: 'tel', placeholder: '(11) 90000-0000', value: valores.whats }),
+      campo('Seu WhatsApp', { id: 'whats', name: 'whats', type: 'tel', required: true, autocomplete: 'tel', placeholder: '(62) 900000000', value: valores.whats }),
       campo('Desde quando treina com ' + personal.primeiroNome + '? (opcional)', { id: 'desde', name: 'desde', type: 'month', value: valores.desde }),
       el('label', { class: 'marca' },
         el('input', {

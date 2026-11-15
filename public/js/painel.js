@@ -1,5 +1,5 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
-import { api, el, campo, meses, reais, paraCentavos, copiar, montar } from './comum.js';
+import { api, el, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, alunos, frases }
 let aba = 'alunos';
@@ -143,7 +143,7 @@ function telaCodigo() {
 const dataBR = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
 const maiuscula = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 const paraCampoValor = (centavos) => (centavos ? (centavos / 100).toFixed(2).replace('.', ',') : '');
-const whatsLocal = (w) => String(w || '').replace(/^55/, '');
+const whatsLocal = formatarWhats; // (62) 900000000
 
 const FILTROS = [['todos', 'Todos'], ['pago', 'Pagos'], ['pendente', 'Pendentes'], ['atrasado', 'Atrasados'], ['pausado', 'Pausados']];
 const ORDEM = ['atrasado', 'pendente', 'pago', 'em_dia', 'pausado', 'inativo'];
@@ -478,7 +478,7 @@ function folhaAluno() {
     el('div', { class: 'linha entre topo' },
       el('div', {},
         el('h2', {}, a.nome),
-        el('p', { class: 'pequeno suave' }, [`WhatsApp ${whatsLocal(a.whatsapp)}`, a.dataInicio ? `treina desde ${dataBR(a.dataInicio)}` : null].filter(Boolean).join(' · '))
+        el('p', { class: 'pequeno suave' }, [`WhatsApp ${whatsLocal(a.whatsapp)}`, a.dataInicio ? `treina desde ${dataBR(a.dataInicio)}` : null, `${meses(a.meses)} de treino`].filter(Boolean).join(' · '))
       ),
       el('span', { class: 'chip ' + classe }, rotulo)
     ),
@@ -556,7 +556,7 @@ function folhaFormulario() {
   const a = folha.id ? alunoDaFolha() : null;
   const p = dados.personal;
   const nome = el('input', { id: 'fNome', type: 'text', required: true, autocomplete: 'off', value: a?.nome || '' });
-  const whats = el('input', { id: 'fWhats', type: 'tel', required: true, autocomplete: 'off', placeholder: '(11) 90000-0000', value: a ? whatsLocal(a.whatsapp) : '' });
+  const whats = mascararWhats(el('input', { id: 'fWhats', type: 'tel', required: true, autocomplete: 'off', placeholder: '(62) 900000000', value: a ? whatsLocal(a.whatsapp) : '' }));
   const inicio = el('input', { id: 'fInicio', type: 'date', max: dados.hoje, value: a?.dataInicio || '' });
   const valor = el('input', { id: 'fValor', type: 'text', inputmode: 'decimal', required: true, placeholder: '250,00', value: paraCampoValor(a?.valor || p.valorPadrao) });
   const dia = el('input', { id: 'fDia', type: 'number', min: '1', max: '28', required: true, value: a?.diaVenc || p.diaPadrao || 5 });
@@ -581,7 +581,7 @@ function folhaFormulario() {
         const campos = { nome: nome.value, whatsapp: whats.value, dataInicio: inicio.value || null, valor: centavos, diaVenc: Number(dia.value) };
         agirNaFolha(async () => {
           if (a) {
-            await api('alunos/' + a.id, 'PUT', { ...campos, baseMeses: Number(base.value), status: situacao.value });
+            await api('alunos/' + a.id, 'PUT', { ...campos, baseMeses: campos.dataInicio ? undefined : Number(base.value), status: situacao.value });
             folha = { tipo: 'aluno', id: a.id, mensalidades: null };
           } else {
             await api('alunos', 'POST', { ...campos, primeiroMes: primeira.value });
@@ -597,7 +597,7 @@ function folhaFormulario() {
       el('div', { class: 'dupla' }, rotulado('Mensalidade (R$)', valor), rotulado('Dia do vencimento', dia)),
       !a && rotulado('Primeira mensalidade a controlar', primeira, 'Escolha "No mês que vem" se a deste mês já está resolvida.'),
       a && rotulado('Situação', situacao, 'Aluno inativo não gera novas mensalidades. Para uma parada temporária, registre uma pausa.'),
-      a && rotulado('Meses de treino antes do controle', base, 'Só afeta a trilha e os selos que o aluno vê.'),
+      a && !inicio.value && rotulado('Meses de treino antes do controle', base, 'Sem a data de início, informe aqui quantos meses o aluno já treinava. Só afeta a trilha e os selos.'),
       el('button', { class: 'botao', type: 'submit' }, a ? 'Salvar' : 'Cadastrar aluno')
     ),
     el('div', { class: 'linha entre' },

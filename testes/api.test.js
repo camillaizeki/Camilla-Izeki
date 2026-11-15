@@ -157,6 +157,7 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   const mesPassado = somaMes(mesAtual, -1);
   assert.equal((await chamar(`alunos/${ana.id}/mensalidades/${mesPassado}`, 'POST', { acao: 'pagar', valor: 25000 })).status, 200);
   assert.equal((await chamar('painel')).corpo.resumo.recebido, 45000);
+  assert.equal((await chamar('aluno/' + token, 'GET', null, false)).corpo.meses, 6); // mês antigo lançado não aumenta a trilha
   r = await chamar(`alunos/${ana.id}/mensalidades`);
   assert.deepEqual(r.corpo.mensalidades.map((m) => m.mes), [mesAtual, mesPassado]);
   assert.equal(r.corpo.mensalidades[0].valorRecebido, 20000);

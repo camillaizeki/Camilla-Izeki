@@ -103,3 +103,16 @@ export function montar(...filhos) {
   const app = document.getElementById('app');
   app.replaceChildren(...filhos.flat(3).filter(Boolean));
 }
+
+// Máscara de celular no formato (62) 900000000, aplicada enquanto a pessoa digita.
+export function formatarWhats(valor) {
+  const d = String(valor || '').replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '').slice(0, 11);
+  return d.length > 2 ? `(${d.slice(0, 2)}) ${d.slice(2)}` : d;
+}
+
+export function mascararWhats(input) {
+  input.addEventListener('input', () => {
+    input.value = formatarWhats(input.value);
+  });
+  return input;
+}
