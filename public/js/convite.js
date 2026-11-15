@@ -8,8 +8,8 @@ let enviando = false;
 let erro = '';
 
 function foto() {
-  if (personal.temFoto) return el('img', { class: 'foto', src: '/api/foto/' + personal.slug, alt: 'Foto de ' + personal.primeiroNome });
-  return el('div', { class: 'foto vazia', 'aria-hidden': 'true' }, personal.primeiroNome.slice(0, 1));
+  if (personal.temFoto) return el('img', { class: 'foto', src: '/api/foto/' + personal.slug, alt: 'Foto de ' + personal.nome });
+  return el('div', { class: 'foto vazia', 'aria-hidden': 'true' }, personal.nome.slice(0, 1));
 }
 
 async function enviar(evento) {
@@ -50,13 +50,13 @@ function desenhar(anterior) {
   montar(
     el('div', { class: 'coluna', style: 'align-items: flex-start' },
       foto(),
-      el('h1', { style: 'font-size: 32px' }, personal.primeiroNome + ' te convidou'),
+      el('h1', { style: 'font-size: 32px' }, personal.nome + ' te convidou'),
       el('p', { class: 'suave' }, 'Acompanhe sua jornada de treino e desbloqueie cada mês em um toque.')
     ),
     el('form', { class: 'coluna cresce', style: 'gap: 14px', onsubmit: enviar },
       campo('Seu nome', { id: 'nome', name: 'nome', type: 'text', required: true, autocomplete: 'name', value: valores.nome }),
       campo('Seu WhatsApp', { id: 'whats', name: 'whats', type: 'tel', required: true, autocomplete: 'tel', placeholder: '(62) 900000000', value: valores.whats }),
-      campo('Desde quando treina com ' + personal.primeiroNome + '? (opcional)', { id: 'desde', name: 'desde', type: 'month', value: valores.desde }),
+      campo('Desde quando treina com ' + personal.nome + '? (opcional)', { id: 'desde', name: 'desde', type: 'month', value: valores.desde }),
       el('label', { class: 'marca' },
         el('input', {
           type: 'checkbox',
@@ -73,7 +73,7 @@ function desenhar(anterior) {
       el('div', { class: 'coluna fim' },
         el('button', { class: 'botao', type: 'submit' }, 'Começar minha jornada'),
         el('p', { class: 'pequeno suave centro' },
-          'Ao continuar, você concorda em compartilhar esses dados com ' + personal.primeiroNome + '. ',
+          'Ao continuar, você concorda em compartilhar esses dados com ' + personal.nome + '. ',
           el('a', { href: '/privacidade' }, 'Privacidade')
         )
       )
@@ -83,7 +83,7 @@ function desenhar(anterior) {
 
 try {
   personal = (await api('convite/' + slug)).personal;
-  document.title = 'Convite de ' + personal.primeiroNome + ' | Renova.AI';
+  document.title = 'Convite de ' + personal.nome + ' | Renova.AI';
   desenhar();
 } catch (e) {
   montar(el('h1', {}, 'Convite não encontrado'), el('p', { class: 'suave' }, e.message));

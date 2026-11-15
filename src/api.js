@@ -47,14 +47,7 @@ function inteiro(valor, min, max, nomeCampo) {
 
 const hex = (bytes) => [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const aleatorio = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
-// Primeiro nome para as mensagens. Se a pessoa escreveu um título antes ("Personal Rafa", "Prof. Ana"),
-// usa o nome que vem depois dele.
-const TITULOS = ['personal', 'trainer', 'prof', 'professor', 'professora', 'coach', 'treinador', 'treinadora', 'dr', 'dra'];
-const primeiroNome = (nome) => {
-  const partes = String(nome || '').trim().split(/\s+/);
-  while (partes.length > 1 && TITULOS.includes(partes[0].toLowerCase().replace(/\.$/, ''))) partes.shift();
-  return partes[0];
-};
+const primeiroNome = (nome) => String(nome || '').trim().split(/\s+/)[0]; // usado só para cumprimentar o aluno
 const dataHoje = () => {
   const h = hojeBR();
   return chaveMes(h.ano, h.mes) + '-' + String(h.dia).padStart(2, '0');
@@ -129,7 +122,6 @@ async function personalLogado(request, db) {
 function personalPublico(p) {
   return {
     nome: p.nome,
-    primeiroNome: primeiroNome(p.nome),
     slug: p.slug,
     email: p.email,
     pixTipo: p.pix_tipo,
@@ -654,7 +646,7 @@ async function rotear(request, env, partes) {
     const p = await personalLogado(request, db);
     const d = await corpo(request);
     const tom = TONS[d.tom] || TONS[p.tom] || TONS.zoeiro;
-    const nome = primeiroNome(p.nome);
+    const nome = p.nome.trim();
     const saida = await pedirIA(
       env,
       'Você escreve frases curtas em português do Brasil para alunos de personal trainer postarem nos stories. ' +
@@ -681,7 +673,7 @@ async function rotear(request, env, partes) {
     const marco = marcoDe(c2.meses + 1);
     const fatos = [
       `Aluno: ${primeiroNome(aluno.nome)}.`,
-      `Personal: ${primeiroNome(p.nome)}.`,
+      `Personal: ${p.nome.trim()}.`,
       `Meses de treino até agora: ${c2.meses}.`,
       `Próximo mês a desbloquear: ${c2.nomeAlvo}.`,
       marco ? `Ao desbloquear, o aluno ganha o selo ${marco}.` : '',
@@ -705,14 +697,14 @@ async function rotear(request, env, partes) {
     const p = await db.prepare('SELECT * FROM personais WHERE slug = ?').bind(String(b).toLowerCase()).first();
     if (!p) throw new Falha('Convite não encontrado. Confira o link com seu personal.', 404);
     if (metodo === 'GET') {
-      return json({ personal: { nome: p.nome, primeiroNome: primeiroNome(p.nome), slug: p.slug, temFoto: !!p.foto } });
+      return json({ personal: { nome: p.nome, slug: p.slug, temFoto: !!p.foto } });
     }
     if (metodo === 'POST') {
       const d = await corpo(request);
       const nome = texto(d.nome, 2, 60, 'nome');
       const whats = normalizarWhats(d.whatsapp);
       const repetido = await db.prepare('SELECT id FROM alunos WHERE personal_id = ? AND whatsapp = ?').bind(p.id, whats).first();
-      if (repetido) throw new Falha(`Este WhatsApp já está cadastrado com ${primeiroNome(p.nome)}. Peça a ele o seu link.`, 409);
+      if (repetido) throw new Falha(`Este WhatsApp já está cadastrado com ${p.nome.trim()}. Peça o seu link.`, 409);
       if (!d.aceite) throw new Falha('É preciso aceitar o compartilhamento dos dados para continuar.');
       const h = hojeBR();
       const mesCadastro = chaveMes(h.ano, h.mes);
@@ -750,12 +742,12 @@ async function rotear(request, env, partes) {
     const valor = daVez?.valor_previsto ?? aluno.valor;
 
     if (!c && metodo === 'GET') {
-      const nomeP = primeiroNome(p.nome);
+      const nomeP = p.nome.trim();
       const frases = (await db.prepare('SELECT texto FROM frases WHERE personal_id = ? AND ativa = 1').bind(p.id).all()).results || [];
       const podePagar = aluno.status !== 'novo' && valor > 0 && !!p.pix_chave;
       return json({
         nome: primeiroNome(aluno.nome),
-        personal: { nome: p.nome, primeiroNome: nomeP, slug: p.slug, temFoto: !!p.foto },
+        personal: { nome: nomeP, slug: p.slug, temFoto: !!p.foto },
         status: aluno.status === 'novo' ? 'novo' : calc.emPausa || aluno.status === 'inativo' ? 'pausado' : 'ativo',
         meses: calc.meses,
         sequencia: calc.sequencia,

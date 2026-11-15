@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { crc16, gerarPix, normalizarChave } from '../lib/pix.js';
 import { calcular, fases, mesesIniciais, somaMes, seloAtual, marcoDe } from '../lib/jornada.js';
+import { faltantes, situacaoMensalidade, filtroDoAluno, resumoDoMes } from '../lib/mensalidades.js';
 
 test('crc16 bate com o valor de referência do padrão', () => {
   assert.equal(crc16('123456789'), '29B1');
@@ -108,4 +109,25 @@ test('mês em pausa não entra na contagem de treino', () => {
   assert.equal(calcular(aluno2, pago, hoje, pausaAgora).meses, 10);
   // Pausa declarada no autocadastro, sem datas, é descontada.
   assert.equal(calcular({ ...aluno2, meses_pausa: 2 }, pago, hoje).meses, 9);
+});
+
+test('meses de treino anteriores ao controle aparecem no histórico, sem virar dívida', () => {
+  // Começou em outubro; cadastrada em novembro, com o controle a partir de novembro.
+  const anne = { status: 'ativo', valor: 80000, dia_venc: 1, mes_inicio: '2026-10', mes_cadastro: '2026-11', mes_controle: '2026-11' };
+  const hoje = { ano: 2026, mes: 11, dia: 15 };
+  const novas = faltantes(anne, [], [], hoje);
+  assert.deepEqual(novas.map((m) => [m.mes, m.status]), [['2026-10', 'anterior'], ['2026-11', 'aberto']]);
+  assert.equal(situacaoMensalidade(novas[0], hoje), 'anterior');
+  assert.equal(situacaoMensalidade(novas[1], hoje), 'atrasado');
+  // Só novembro entra na cobrança e nos totais
+  assert.deepEqual(resumoDoMes(novas, hoje), { recebido: 0, pendente: 0, atrasado: 80000 });
+  assert.equal(filtroDoAluno(anne, novas, false, hoje), 'atrasado');
+  const c = calcular(anne, novas, hoje);
+  assert.equal(c.alvo, '2026-11');
+  assert.equal(c.meses, 1);
+  // Quem treina há anos mostra só os 12 meses anteriores
+  const antigo = { ...anne, mes_inicio: '2020-01' };
+  assert.equal(faltantes(antigo, [], [], hoje).filter((m) => m.status === 'anterior').length, 12);
+  // Mês anterior já lançado pelo personal não é recriado
+  assert.deepEqual(faltantes(anne, [{ mes: '2026-10', status: 'confirmado' }], [], hoje).map((m) => m.mes), ['2026-11']);
 });

@@ -8,7 +8,7 @@ let fraseIdx = 0;
 let aviso = '';
 let fotoImg = null;
 
-const P = () => d.personal.primeiroNome;
+const P = () => d.personal.nome;
 
 async function carregar() {
   d = await api('aluno/' + token);
@@ -228,8 +228,13 @@ async function desenharArte(canvas) {
 
   // Rodapé
   ctx.fillStyle = '#C8F03C';
-  ctx.font = '600 44px Inter, sans-serif';
-  ctx.fillText((mesesNaArte() > 0 ? `${meses(mesesNaArte())} de treino com ${P()}` : `Treinando com ${P()}`).toUpperCase(), 80, 1790);
+  const rodape = (mesesNaArte() > 0 ? `${meses(mesesNaArte())} de treino com ${P()}` : `Treinando com ${P()}`).toUpperCase();
+  let corpo = 44;
+  do {
+    ctx.font = `600 ${corpo}px Inter, sans-serif`;
+    corpo -= 2;
+  } while (ctx.measureText(rodape).width > L - 160 && corpo > 22);
+  ctx.fillText(rodape, 80, 1790);
   ctx.fillStyle = '#C9CED8';
   ctx.font = '500 34px Inter, sans-serif';
   ctx.fillText('Renova.AI', 80, 1850);

@@ -12,7 +12,7 @@ let sugestoes = [];
 let codigoNovo = ''; // código de recuperação recém-gerado, mostrado uma vez
 let folha = null; // janela aberta por cima: fila de lembretes, aluno, pagamento, cadastro ou pausas
 
-const P = () => dados.personal.primeiroNome;
+const P = () => dados.personal.nome;
 const linkAluno = (a) => `${location.origin}/a/${a.token}`;
 const linkConvite = () => `${location.origin}/c/${dados.personal.slug}`;
 const primeiro = (nome) => nome.trim().split(/\s+/)[0];
@@ -147,7 +147,7 @@ const whatsLocal = formatarWhats; // (62) 900000000
 
 const FILTROS = [['todos', 'Todos'], ['pago', 'Pagos'], ['pendente', 'Pendentes'], ['atrasado', 'Atrasados'], ['pausado', 'Pausados']];
 const ORDEM = ['atrasado', 'pendente', 'pago', 'em_dia', 'pausado', 'inativo'];
-const CHIP_MENSALIDADE = { pago: ['lima', 'Pago'], pendente: ['neutro', 'Pendente'], atrasado: ['forte', 'Atrasado'], pausado: ['vazio', 'Em pausa'], dispensado: ['vazio', 'Dispensada'] };
+const CHIP_MENSALIDADE = { pago: ['lima', 'Pago'], pendente: ['neutro', 'Pendente'], atrasado: ['forte', 'Atrasado'], pausado: ['vazio', 'Em pausa'], dispensado: ['vazio', 'Dispensada'], anterior: ['vazio', 'Anterior'] };
 
 function chipDoAluno(a) {
   if (a.filtro === 'inativo') return ['vazio', 'Inativo'];
@@ -403,6 +403,7 @@ function linhaMensalidade(a, m) {
     atrasado: `Venceu em ${dataBR(m.vencimento)} · ${reais(m.valor || 0)}`,
     pausado: 'Aluno em pausa neste vencimento',
     dispensado: 'Não será cobrada',
+    anterior: 'Mês de treino anterior ao controle pelo app',
   }[m.situacao];
   const aberta = m.situacao === 'pendente' || m.situacao === 'atrasado';
   return el('div', { class: 'mensalidade' },
@@ -412,7 +413,7 @@ function linhaMensalidade(a, m) {
     ),
     el('div', { class: 'linha' },
       aberta && el('button', { class: 'botao menor', style: 'width: auto; padding: 0 20px', onclick: () => marcarPago(a, m) }, 'Pago'),
-      el('button', { class: 'link pequeno', onclick: () => irPara('pagar', { m }) }, aberta ? 'Outra data ou valor' : m.situacao === 'pago' ? 'Corrigir' : 'Alterar')
+      el('button', { class: 'link pequeno', onclick: () => irPara('pagar', { m }) }, aberta ? 'Outra data ou valor' : m.situacao === 'pago' ? 'Corrigir' : m.situacao === 'anterior' ? 'Lançar recebimento ou cobrar' : 'Alterar')
     )
   );
 }
@@ -508,7 +509,7 @@ function folhaPagar() {
   const a = alunoDaFolha();
   const m = folha.m;
   const mes = el('input', { id: 'mesRef', type: 'month', required: true, max: dados.hoje.slice(0, 7), value: dados.hoje.slice(0, 7) });
-  const data = el('input', { id: 'dataRec', type: 'date', required: true, max: dados.hoje, value: m?.recebidoEm || dados.hoje });
+  const data = el('input', { id: 'dataRec', type: 'date', required: true, max: dados.hoje, value: m?.recebidoEm || (m?.situacao === 'anterior' ? m.vencimento : dados.hoje) }); // mês antigo: sugere a data daquele mês
   const valor = el('input', { id: 'valorRec', type: 'text', inputmode: 'decimal', required: true, value: paraCampoValor(m?.valorRecebido || m?.valor || a.valor) });
   const acao = (nome) => agirNaFolha(async () => {
     await api(`alunos/${a.id}/mensalidades/${m.mes}`, 'POST', { acao: nome });
@@ -540,7 +541,7 @@ function folhaPagar() {
       el('p', { class: 'pequeno suave' }, 'O valor entra no faturamento do mês em que foi recebido.'),
       el('button', { class: 'botao', type: 'submit' }, m?.situacao === 'pago' ? 'Salvar correção' : 'Salvar como pago')
     ),
-    m && m.situacao !== 'pendente' && m.situacao !== 'atrasado' && el('button', { class: 'botao claro menor', onclick: () => acao('reabrir') }, m.situacao === 'pago' ? 'Desfazer pagamento' : 'Voltar a cobrar este mês'),
+    m && m.situacao !== 'pendente' && m.situacao !== 'atrasado' && el('button', { class: 'botao claro menor', onclick: () => acao('reabrir') }, m.situacao === 'pago' ? 'Desfazer pagamento' : m.situacao === 'anterior' ? 'Cobrar este mês (fica como atrasado)' : 'Voltar a cobrar este mês'),
     m && (m.situacao === 'pendente' || m.situacao === 'atrasado') && el('button', { class: 'botao claro menor', onclick: () => acao('dispensar') }, 'Dispensar esta mensalidade'),
     el('button', { class: 'link', onclick: () => irPara('aluno') }, 'Voltar'),
   ];
