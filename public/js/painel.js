@@ -171,7 +171,7 @@ const precisaLembrar = (a) => ['renova_hoje', 'renova_em', 'aguardando'].include
 function textoLembrete(a) {
   const nome = primeiro(a.nome);
   // Nas mensagens de WhatsApp o nome vai sem ponto: "Renova.AI" vira link clicável para um site que não é o app.
-  const assinatura = `\n\nResumo automático do Renova AI para alunos de ${P()}`;
+  const assinatura = `\n\nMensagem automática do Renova AI para alunos de ${P()}`;
   if (a.emPausa || a.status === 'inativo') {
     return `Oi, ${nome}! Sua jornada de ${meses(a.meses)} com ${P()} está guardada. Quando quiser voltar, é só reativar por aqui: ${linkAluno(a)}${assinatura}`;
   }
