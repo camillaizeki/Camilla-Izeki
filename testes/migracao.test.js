@@ -22,7 +22,8 @@ test('banco da primeira versão é convertido para o controle de mensalidades', 
     INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, base_meses, seq_base, mes_cadastro, status, valor, dia_venc, criado_em) VALUES
       (1, 't1', 'Ana', '5511911111111', '2026-07', 5, 5, '2026-11', 'ativo', 25000, 5, '2026-11-14'),
       (1, 't2', 'Carla', '5511922222222', NULL, 1, 1, '2026-12', 'pausado', 30000, 10, '2026-12-02'),
-      (1, 't3', 'Novo', '5511933333333', NULL, 1, 1, '2026-11', 'novo', NULL, 5, '2026-11-14');
+      (1, 't3', 'Novo', '5511933333333', NULL, 1, 1, '2026-11', 'novo', NULL, 5, '2026-11-14'),
+      (1, 't4', 'Dani', '5511944444444', NULL, 3, 3, '2026-11', 'ativo', 20000, 10, '2026-11-14T20:00:00.000Z');
     INSERT INTO pagamentos (aluno_id, mes, status, informado_em, confirmado_em) VALUES
       (1, '2026-12', 'confirmado', NULL, '2026-12-04T13:00:00.000Z'),
       (1, '2027-01', 'informado', '2027-01-05T10:00:00.000Z', NULL);
@@ -33,11 +34,15 @@ test('banco da primeira versão é convertido para o controle de mensalidades', 
   const um = (sql) => db.sqlite.prepare(sql).get();
 
   // Alunos e pagamentos continuam todos lá
-  assert.equal(um('SELECT COUNT(*) AS n FROM alunos').n, 3);
+  assert.equal(um('SELECT COUNT(*) AS n FROM alunos').n, 4);
   assert.equal(um('SELECT COUNT(*) AS n FROM pagamentos').n, 2);
 
-  // Primeiro mês controlado e data de início
-  assert.deepEqual({ ...um('SELECT mes_controle, data_inicio, status FROM alunos WHERE id = 1') }, { mes_controle: '2026-12', data_inicio: '2026-07-01', status: 'ativo' });
+  // Quem já existia antes do controle mensal passa a ser controlado desde o mês do cadastro,
+  // para esse mês não ficar sem mensalidade
+  assert.deepEqual({ ...um('SELECT mes_controle, data_inicio, status, base_meses FROM alunos WHERE id = 1') }, { mes_controle: '2026-11', data_inicio: '2026-07-01', status: 'ativo', base_meses: 5 });
+  // Sem data de início, o mês do cadastro sai da contagem guardada (volta quando for pago)
+  assert.deepEqual({ ...um('SELECT mes_controle, base_meses, seq_base FROM alunos WHERE id = 4') }, { mes_controle: '2026-11', base_meses: 2, seq_base: 2 });
+  // Cadastro posterior a essa mudança não é alterado
   assert.equal(um('SELECT mes_controle FROM alunos WHERE id = 2').mes_controle, '2027-01');
   assert.equal(um('SELECT mes_controle FROM alunos WHERE id = 3').mes_controle, null); // "novo" define ao ser confirmado
 
@@ -56,9 +61,33 @@ test('banco da primeira versão é convertido para o controle de mensalidades', 
     { valor_previsto: 25000, vencimento: '2027-01-05', recebido_em: null }
   );
 
-  // Rodar de novo não repete a conversão (não cria outra pausa)
+  assert.equal(um("SELECT valor FROM meta WHERE chave = 'versao'").valor, '3');
+
+  // Rodar de novo não repete a conversão (não cria outra pausa nem desconta outro mês)
   esquecerBanco();
   await prepararBanco(db);
   assert.equal(um('SELECT COUNT(*) AS n FROM pausas').n, 1);
+  assert.equal(um('SELECT base_meses FROM alunos WHERE id = 4').base_meses, 2);
+  esquecerBanco();
+});
+
+test('banco que já estava na versão 2 recebe só o ajuste do mês do cadastro', async () => {
+  const db = bancoFalso();
+  esquecerBanco();
+  await prepararBanco(db); // banco novo, já na versão atual
+  db.sqlite.exec(`
+    UPDATE meta SET valor = '2' WHERE chave = 'versao';
+    INSERT INTO personais (slug, nome, email, senha_hash, senha_sal, criado_em) VALUES ('rafa', 'Rafa', 'rafa@exemplo.com', 'h', 's', '2026-11-14');
+    INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, data_inicio, base_meses, seq_base, mes_cadastro, mes_controle, status, valor, dia_venc, criado_em) VALUES
+      (1, 't1', 'Camilla', '5562900000000', '2026-01', '2026-01-01', 11, 11, '2026-11', '2026-12', 'ativo', 60000, 10, '2026-11-14T22:00:00.000Z'),
+      (1, 't2', 'Proximo', '5562911111111', NULL, NULL, 1, 1, '2026-11', '2026-12', 'ativo', 60000, 10, '2026-11-15T17:00:00.000Z');
+    INSERT INTO pagamentos (aluno_id, mes, status, valor_previsto, vencimento, informado_em) VALUES (1, '2026-12', 'informado', 60000, '2026-12-10', '2026-11-15T17:05:00.000Z');
+  `);
+  esquecerBanco();
+  await prepararBanco(db);
+  const um = (sql) => db.sqlite.prepare(sql).get();
+  assert.equal(um('SELECT mes_controle FROM alunos WHERE id = 1').mes_controle, '2026-11');
+  assert.equal(um('SELECT mes_controle FROM alunos WHERE id = 2').mes_controle, '2026-12'); // escolheu "No mês que vem" depois da mudança
+  assert.equal(um('SELECT COUNT(*) AS n FROM pagamentos').n, 1); // o aviso de dezembro continua lá
   esquecerBanco();
 });
