@@ -764,11 +764,14 @@ function folhaPagar() {
 }
 
 // Cadastro pelo personal (aluno novo) ou edição de um aluno existente.
-// Lista de dias 1 a 28 que começa sem escolha, para o personal decidir de propósito.
+// Lista de dias 1 a 31 que começa sem escolha, para o personal decidir de propósito.
+// 29, 30 e 31 vencem no último dia dos meses mais curtos (o servidor ajusta mês a mês).
+const AVISO_FIM_DE_MES = () => el('p', { class: 'pequeno suave', style: 'margin-top: -6px' }, 'Dias 29, 30 e 31: nos meses mais curtos, vence no último dia do mês.');
+
 function seletorDia(id, valor) {
   return el('select', { id, required: true },
     el('option', { value: '', disabled: true, selected: !valor }, 'Escolha'),
-    Array.from({ length: 28 }, (_, i) => el('option', { value: String(i + 1), selected: valor === i + 1 }, 'Dia ' + (i + 1)))
+    Array.from({ length: 31 }, (_, i) => el('option', { value: String(i + 1), selected: valor === i + 1 }, 'Dia ' + (i + 1)))
   );
 }
 
@@ -821,6 +824,7 @@ function folhaFormulario() {
       rotulado('Celular / WhatsApp', whats),
       rotulado('Início dos treinos (opcional)', inicio, 'Serve para contar os meses de treino na trilha do aluno.'),
       el('div', { class: 'dupla' }, rotulado('Mensalidade (R$)', valor), rotulado('Dia do vencimento', dia)),
+      AVISO_FIM_DE_MES(),
       !a && rotulado('Primeira mensalidade a controlar', primeira, 'Escolha "No mês que vem" se a deste mês já está resolvida.'),
       a && rotulado('Situação', situacao, 'Aluno inativo não gera novas mensalidades. Para uma parada temporária, registre uma pausa.'),
       a && !inicio.value && rotulado('Meses de treino antes do controle', base, 'Sem a data de início, informe aqui quantos meses o aluno já treinava. Só afeta a trilha e os selos.'),
@@ -885,6 +889,7 @@ function abaNovos() {
             el('div', { class: 'campo' }, el('label', { for: valor.id }, 'Mensalidade (R$)'), valor),
             el('div', { class: 'campo' }, el('label', { for: dia.id }, 'Dia do vencimento'), dia)
           ),
+          AVISO_FIM_DE_MES(),
           el('div', { class: 'campo' }, el('label', { for: primeira.id }, 'Primeira mensalidade a controlar'), primeira),
           el('button', { class: 'botao menor', type: 'submit' }, 'Confirmar aluno')
         ),

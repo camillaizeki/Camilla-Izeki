@@ -487,7 +487,7 @@ async function rotear(request, env, partes) {
     const whats = normalizarWhats(d.whatsapp);
     await semDuplicado(db, p.id, whats);
     const valor = inteiro(d.valor, 100, 10000000, 'mensalidade');
-    const dia = inteiro(d.diaVenc, 1, 28, 'dia de vencimento');
+    const dia = inteiro(d.diaVenc, 1, 31, 'dia de vencimento');
     const hoje = hojeBR();
     const mesCadastro = chaveMes(hoje.ano, hoje.mes);
     const dataInicio = d.dataInicio ? dataValida(d.dataInicio, 'data de início') : null;
@@ -521,7 +521,7 @@ async function rotear(request, env, partes) {
       const whats = d.whatsapp == null ? aluno.whatsapp : normalizarWhats(d.whatsapp);
       if (whats !== aluno.whatsapp) await semDuplicado(db, p.id, whats, aluno.id);
       const valor = inteiro(d.valor, 100, 10000000, 'mensalidade');
-      const dia = inteiro(d.diaVenc, 1, 28, 'dia de vencimento');
+      const dia = inteiro(d.diaVenc, 1, 31, 'dia de vencimento');
       const status = d.status === 'inativo' ? 'inativo' : 'ativo';
       let dataInicio = aluno.data_inicio;
       if (d.dataInicio !== undefined) dataInicio = d.dataInicio ? dataValida(d.dataInicio, 'data de início') : null;
