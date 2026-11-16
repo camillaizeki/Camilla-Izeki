@@ -1,5 +1,6 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
 import { api, el, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
+import { iniciarInstalacao, avisoInstalar, secaoInstalar } from './instalar.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
 let aba = 'inicio';
@@ -86,7 +87,7 @@ function telaConta() {
 
   return [
     el('div', { class: 'coluna', style: 'margin-top: 6vh' },
-      el('p', { class: 'pequeno', style: 'font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase' }, 'Renova.AI'),
+      el('div', { class: 'cabeca' }, el('img', { class: 'cabeca-icone', src: '/icones/icone-192.png', alt: '' }), el('p', { class: 'logo-texto', style: 'font-size: 18px' }, 'Renova', el('span', {}, '.AI'))),
       el('h1', {}, titulo),
       esqueci && el('p', { class: 'suave' }, 'Use o código de recuperação que você guardou ao criar a conta.')
     ),
@@ -890,7 +891,7 @@ function abaArte() {
       el('div', { class: 'campo' }, el('label', { for: 'tom-ia' }, 'Tom das frases'), tom),
       sugerir,
       sugestoes.map((s) =>
-        el('div', { class: 'linha entre', style: 'padding-top: 10px; border-top: 1px solid #DDE0D6' },
+        el('div', { class: 'linha entre', style: 'padding-top: 10px; border-top: 1px solid #DDE8E5' },
           el('span', { class: 'cresce' }, s),
           el('button', {
             class: 'link pequeno',
@@ -978,6 +979,7 @@ function abaConta() {
         }),
       }, p.temCodigo ? 'Gerar novo código' : 'Gerar código de recuperação')
     ),
+    secaoInstalar(),
     el('button', { class: 'link', onclick: () => agir(async () => { await api('conta/sair', 'POST', {}); dados = null; }) }, 'Sair da conta'),
   ];
 }
@@ -1014,15 +1016,23 @@ function desenhar() {
   const conteudo = { inicio: abaInicio, alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
   const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario };
   montar(
-    el('div', {}, el('p', { class: 'suave' }, 'Renova.AI'), el('h1', {}, 'Painel de ' + P())),
+    el('header', { class: 'cabeca' },
+      el('img', { class: 'cabeca-icone', src: '/icones/icone-192.png', alt: '' }),
+      el('div', {}, el('p', { class: 'logo-texto' }, 'Renova', el('span', {}, '.AI')), el('h1', {}, 'Painel de ' + P()))
+    ),
     el('nav', { class: 'abas', 'aria-label': 'Seções do painel' },
       abas.map(([id, rotulo]) => el('button', { class: 'aba', 'aria-pressed': String(aba === id), onclick: () => trocarAba(id) }, rotulo))
     ),
+    aba !== 'conta' && avisoInstalar(),
     erro && !folha && aba !== 'conta' && el('p', { class: 'erro', role: 'alert' }, erro),
     conteudo(),
     folha && el('div', { class: 'folha-fundo' }, el('div', { class: 'folha', role: 'dialog', 'aria-modal': 'true' }, folhas[folha.tipo]()))
   );
 }
+
+iniciarInstalacao(() => {
+  if (dados && !codigoNovo && !folha) desenhar();
+});
 
 try {
   await carregar();
