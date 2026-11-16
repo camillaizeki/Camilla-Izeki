@@ -320,3 +320,11 @@ test('entrada do Worker encaminha API, links bonitos e arquivos', async () => {
   await ir('/estilo.css');
   assert.deepEqual(pedidos, ['/convite', '/aluno', '/painel', '/estilo.css']);
 });
+
+test('aceita vencimento no dia 31 e recusa dia 32', async () => {
+  await chamar('conta/criar', 'POST', { nome: 'Tina', email: 'tina@exemplo.com', senha: 'senha-forte-1', slug: 'tina' });
+  const r = await chamar('alunos', 'POST', { nome: 'Lia', whatsapp: '62971234567', valor: 20000, diaVenc: 31 });
+  assert.equal(r.status, 200);
+  const r2 = await chamar('alunos', 'POST', { nome: 'Leo', whatsapp: '62971234568', valor: 20000, diaVenc: 32 });
+  assert.equal(r2.status, 400);
+});

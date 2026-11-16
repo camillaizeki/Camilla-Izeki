@@ -192,3 +192,16 @@ test('pagamento adiantado: conta no caixa de hoje, aparece no mês futuro e não
   const pausas = new Map([[3, [{ inicio: '2026-11-20', fim: null, cobrar: 0 }]]]);
   assert.deepEqual(projecaoDoMes(alunos, pags, pausas, '2026-12'), { previsto: 55000, total: 2, pagas: 1, recebidoDoMes: 30000 });
 });
+
+test('vencimento nos dias 29, 30 e 31 cai no último dia dos meses mais curtos', async () => {
+  const { vencimentoNoMes } = await import('../lib/jornada.js');
+  const { vencimentoDe } = await import('../lib/mensalidades.js');
+  assert.equal(vencimentoNoMes('2026-02', 31), '2026-02-28');
+  assert.equal(vencimentoNoMes('2028-02', 30), '2028-02-29'); // bissexto
+  assert.equal(vencimentoNoMes('2026-04', 31), '2026-04-30');
+  assert.equal(vencimentoNoMes('2026-05', 31), '2026-05-31');
+  assert.equal(vencimentoNoMes('2026-03', 30), '2026-03-30');
+  assert.equal(vencimentoNoMes('2026-11', 5), '2026-11-05');
+  assert.equal(vencimentoNoMes('2026-11', null), '2026-11-05');
+  assert.equal(vencimentoDe('2026-02', 29), '2026-02-28');
+});
