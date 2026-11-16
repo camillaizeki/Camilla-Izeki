@@ -4,6 +4,7 @@ import { api, el, campo, montar, mascararWhats } from './comum.js';
 const slug = decodeURIComponent(location.pathname.split('/').filter(Boolean)[1] || '');
 let personal = null;
 let temPausa = false;
+let mesesParado = 1;
 let enviando = false;
 let erro = '';
 
@@ -23,7 +24,7 @@ async function enviar(evento) {
       nome: f.nome.value,
       whatsapp: f.whats.value,
       mesInicio: f.desde.value || null,
-      mesesPausa: temPausa ? Number(f.pausaMeses.value || 0) : 0,
+      mesesPausa: f.desde.value && temPausa ? mesesParado : 0,
       aceite: true,
     });
     location.href = '/a/' + token + '?novo=1';
@@ -39,8 +40,36 @@ function desenhar(anterior) {
     ? { nome: anterior.nome.value, whats: anterior.whats.value, desde: anterior.desde.value }
     : { nome: '', whats: '', desde: '' };
 
-  const pausaCampo = el('div', { id: 'pausa-campo', hidden: !temPausa },
-    campo('Quantos meses parado, no total?', { id: 'pausaMeses', name: 'pausaMeses', type: 'number', min: '1', inputmode: 'numeric', placeholder: '2' })
+  // Pergunta de pausa: só aparece depois que a pessoa diz desde quando treina,
+  // porque serve apenas para descontar da contagem os meses sem treino.
+  const rotuloMeses = el('strong', { 'aria-live': 'polite' });
+  const menos = el('button', { type: 'button', class: 'icone-botao', 'aria-label': 'Menos um mês' }, '−');
+  const mais = el('button', { type: 'button', class: 'icone-botao', 'aria-label': 'Mais um mês' }, '+');
+  const atualizarContador = () => {
+    rotuloMeses.textContent = mesesParado === 1 ? '1 mês' : mesesParado + ' meses';
+    menos.disabled = mesesParado <= 1;
+  };
+  menos.addEventListener('click', () => { mesesParado = Math.max(1, mesesParado - 1); atualizarContador(); });
+  mais.addEventListener('click', () => { mesesParado = Math.min(240, mesesParado + 1); atualizarContador(); });
+  atualizarContador();
+
+  const quanto = el('div', { class: 'campo', hidden: !temPausa },
+    el('span', { class: 'rotulo-campo' }, 'Quanto tempo ficou sem treinar, somando tudo?'),
+    el('div', { class: 'contador' }, menos, rotuloMeses, mais),
+    el('p', { class: 'pequeno suave' }, 'Esses meses não entram na contagem da sua jornada.')
+  );
+  const escolha = (valor, texto) => el('button', {
+    type: 'button', class: 'opcao', 'aria-pressed': String(temPausa === valor),
+    onclick: (e) => {
+      temPausa = valor;
+      e.currentTarget.parentElement.querySelectorAll('.opcao').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget)));
+      quanto.hidden = !temPausa;
+    },
+  }, texto);
+  const pausaCampo = el('fieldset', { class: 'pergunta', hidden: !valores.desde },
+    el('legend', {}, 'Nesse período, você ficou algum tempo sem treinar com ' + personal.nome + '?'),
+    el('div', { class: 'opcoes' }, escolha(false, 'Não, treinei direto'), escolha(true, 'Sim, dei uma pausa')),
+    quanto
   );
 
   queueMicrotask(() => {
@@ -56,18 +85,11 @@ function desenhar(anterior) {
     el('form', { class: 'coluna cresce', style: 'gap: 14px', onsubmit: enviar },
       campo('Seu nome', { id: 'nome', name: 'nome', type: 'text', required: true, autocomplete: 'name', value: valores.nome }),
       campo('Seu WhatsApp', { id: 'whats', name: 'whats', type: 'tel', required: true, autocomplete: 'tel', placeholder: '(62) 900000000', value: valores.whats }),
-      campo('Desde quando treina com ' + personal.nome + '? (opcional)', { id: 'desde', name: 'desde', type: 'month', value: valores.desde }),
-      el('label', { class: 'marca' },
-        el('input', {
-          type: 'checkbox',
-          checked: temPausa,
-          onchange: (e) => {
-            temPausa = e.target.checked;
-            pausaCampo.hidden = !temPausa;
-          },
-        }),
-        el('span', {}, 'Já dei uma pausa nos treinos')
-      ),
+      campo('Desde quando treina com ' + personal.nome + '? (opcional)', {
+        id: 'desde', name: 'desde', type: 'month', value: valores.desde,
+        oninput: (e) => { pausaCampo.hidden = !e.target.value; },
+        onchange: (e) => { pausaCampo.hidden = !e.target.value; },
+      }, 'input', 'Mês e ano em que começou. Conta para os seus selos.'),
       pausaCampo,
       erro && el('p', { class: 'erro', role: 'alert' }, erro),
       el('div', { class: 'coluna fim' },
