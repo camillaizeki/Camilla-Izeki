@@ -314,3 +314,16 @@ button.numero strong { text-decoration: underline; text-decoration-color: var(--
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Campo do link de convite: o começo do endereço fica fixo, a pessoa só digita o nome */
+.grupo-link { display: flex; align-items: center; min-height: 48px; border: 1.5px solid var(--linha-forte); border-radius: 13px; background: var(--superficie); transition: border-color 0.15s ease, box-shadow 0.15s ease; }
+.grupo-link:focus-within { border-color: var(--marca-forte); box-shadow: var(--anel); }
+.grupo-link span { padding: 0 2px 0 14px; color: var(--suave); font-weight: 600; font-size: 16px; }
+.campo .grupo-link input { border: none; box-shadow: none; min-height: 44px; padding-left: 2px; background: transparent; }
+.campo .grupo-link input:focus { box-shadow: none; }
+.link-final { word-break: break-all; }
+.link-previa { color: var(--marca-texto); }
+
+/* Lista ainda sem escolha aparece em cinza, como os textos de exemplo */
+.campo select:invalid { color: #6b7d78; }
+.campo select option { color: var(--tinta); }

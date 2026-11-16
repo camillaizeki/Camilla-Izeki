@@ -72,15 +72,29 @@ function telaConta() {
     desenhar();
   };
 
-  const slug = el('input', { id: 'slug', name: 'slug', type: 'text', required: true, autocapitalize: 'none', placeholder: 'rafa' });
+  // Só letras minúsculas sem acento, números e hífen, que é o que o endereço aceita.
+  const limparLink = (t) => t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-').slice(0, 30);
+  const previa = el('strong', { class: 'link-previa' });
+  const slug = el('input', {
+    id: 'slug', name: 'slug', type: 'text', required: true, minlength: '3', maxlength: '30',
+    autocapitalize: 'none', autocomplete: 'off', spellcheck: 'false', placeholder: 'seunome',
+    'aria-describedby': 'slug-ajuda',
+  });
+  const atualizarPrevia = () => { previa.textContent = slug.value || 'seunome'; };
   const nome = el('input', {
     id: 'nome', name: 'nome', type: 'text', required: true, autocomplete: 'name',
     oninput: (e) => {
       if (slug.dataset.editado) return;
-      slug.value = primeiro(e.target.value).toLowerCase().normalize('NFD').replace(/[^a-z0-9]/g, '');
+      slug.value = limparLink(primeiro(e.target.value)).replace(/-/g, '');
+      atualizarPrevia();
     },
   });
-  slug.addEventListener('input', () => (slug.dataset.editado = '1'));
+  slug.addEventListener('input', () => {
+    slug.dataset.editado = '1';
+    slug.value = limparLink(slug.value);
+    atualizarPrevia();
+  });
+  atualizarPrevia();
 
   const titulo = criando ? 'Criar conta de personal' : esqueci ? 'Criar uma senha nova' : 'Entrar no painel';
   const rotuloSenha = criando ? 'Crie uma senha (8 caracteres ou mais)' : esqueci ? 'Senha nova (8 caracteres ou mais)' : 'Senha';
@@ -100,9 +114,10 @@ function telaConta() {
         autocomplete: criando || esqueci ? 'new-password' : 'current-password',
       }),
       criando && el('div', { class: 'campo' },
-        el('label', { for: 'slug' }, 'Seu link de convite'),
-        slug,
-        el('p', { class: 'pequeno suave' }, `Seus alunos vão acessar ${location.host}/c/seu-link`)
+        el('label', { for: 'slug' }, 'Escolha um nome para o seu link de convite'),
+        el('p', { class: 'pequeno suave', id: 'slug-ajuda' }, 'É por esse link que seus alunos fazem o cadastro. Use algo curto, como o seu nome. Só letras, números e hífen.'),
+        el('div', { class: 'grupo-link' }, el('span', { 'aria-hidden': 'true' }, '/c/'), slug),
+        el('p', { class: 'pequeno suave link-final' }, 'Seus alunos vão abrir: ', el('span', {}, location.host + '/c/'), previa)
       ),
       erro && el('p', { class: 'erro', role: 'alert' }, erro),
       el('button', { class: 'botao', type: 'submit' }, criando ? 'Criar conta' : esqueci ? 'Salvar senha nova' : 'Entrar')
@@ -749,6 +764,14 @@ function folhaPagar() {
 }
 
 // Cadastro pelo personal (aluno novo) ou edição de um aluno existente.
+// Lista de dias 1 a 28 que começa sem escolha, para o personal decidir de propósito.
+function seletorDia(id, valor) {
+  return el('select', { id, required: true },
+    el('option', { value: '', disabled: true, selected: !valor }, 'Escolha'),
+    Array.from({ length: 28 }, (_, i) => el('option', { value: String(i + 1), selected: valor === i + 1 }, 'Dia ' + (i + 1)))
+  );
+}
+
 function abrirFormulario(a) {
   erro = '';
   folha = a ? { tipo: 'form', id: a.id } : { tipo: 'form', id: null };
@@ -761,8 +784,8 @@ function folhaFormulario() {
   const nome = el('input', { id: 'fNome', type: 'text', required: true, autocomplete: 'off', value: a?.nome || '' });
   const whats = mascararWhats(el('input', { id: 'fWhats', type: 'tel', required: true, autocomplete: 'off', placeholder: '(62) 900000000', value: a ? whatsLocal(a.whatsapp) : '' }));
   const inicio = el('input', { id: 'fInicio', type: 'date', max: dados.hoje, value: a?.dataInicio || '' });
-  const valor = el('input', { id: 'fValor', type: 'text', inputmode: 'decimal', required: true, placeholder: '250,00', value: paraCampoValor(a?.valor || p.valorPadrao) });
-  const dia = el('input', { id: 'fDia', type: 'number', min: '1', max: '28', required: true, value: a?.diaVenc || p.diaPadrao || 5 });
+  const valor = el('input', { id: 'fValor', type: 'text', inputmode: 'decimal', required: true, placeholder: 'Ex.: 250,00', value: a?.valor ? paraCampoValor(a.valor) : '' });
+  const dia = seletorDia('fDia', a?.diaVenc || null);
   const primeira = el('select', { id: 'fPrimeira' }, el('option', { value: 'atual' }, 'Neste mês'), el('option', { value: 'proximo' }, 'No mês que vem'));
   const base = el('input', { id: 'fBase', type: 'number', min: '0', max: '600', value: a ? a.baseMeses : 0 });
   const situacao = el('select', { id: 'fSituacao' }, el('option', { value: 'ativo' }, 'Ativo'), el('option', { value: 'inativo' }, 'Inativo (parou de treinar)'));
@@ -841,8 +864,8 @@ function abaNovos() {
     !novos.length && el('p', { class: 'suave centro' }, 'Nenhum cadastro aguardando confirmação.'),
     novos.map((a) => {
       const detalhes = [a.mesInicio ? `Treina desde ${dataBR(a.dataInicio).slice(3)}` : 'Não informou quando começou', a.mesesPausa ? `${meses(a.mesesPausa)} de pausa` : null].filter(Boolean).join(', com ');
-      const valor = el('input', { id: 'valor' + a.id, type: 'text', inputmode: 'decimal', required: true, placeholder: '250,00', value: paraCampoValor(a.valor || dados.personal.valorPadrao) });
-      const dia = el('input', { id: 'dia' + a.id, type: 'number', min: '1', max: '28', required: true, value: a.diaVenc || dados.personal.diaPadrao || 5 });
+      const valor = el('input', { id: 'valor' + a.id, type: 'text', inputmode: 'decimal', required: true, placeholder: 'Ex.: 250,00', value: '' });
+      const dia = seletorDia('dia' + a.id, null);
       const primeira = el('select', { id: 'primeira' + a.id }, el('option', { value: 'atual' }, 'Neste mês'), el('option', { value: 'proximo' }, 'No mês que vem'));
       return el('div', { class: 'cartao' },
         el('div', {}, el('h3', {}, a.nome), el('p', { class: 'pequeno suave' }, `Cadastrou-se pelo seu link. ${detalhes}. WhatsApp ${whatsLocal(a.whatsapp)}.`)),
@@ -1009,7 +1032,7 @@ function abaConta() {
         try {
           await api('conta', 'PUT', {
             nome: f.nome.value, pixTipo: tipo.value, pixChave: f.pixChave.value, pixNome: f.pixNome.value, pixCidade: f.pixCidade.value,
-            valorPadrao: paraCentavos(f.valorPadrao.value) || null, diaPadrao: Number(f.diaPadrao.value || 5), tom: tom.value,
+            tom: tom.value,
           });
           await carregar();
           salvo = true;
@@ -1026,12 +1049,7 @@ function abaConta() {
       campo('Chave Pix', { id: 'pixChave', name: 'pixChave', type: 'text', autocapitalize: 'none', value: p.pixChave || '' }),
       campo('Nome de quem recebe (como está no banco)', { id: 'pixNome', name: 'pixNome', type: 'text', maxlength: '60', value: p.pixNome || p.nome }),
       campo('Cidade', { id: 'pixCidade', name: 'pixCidade', type: 'text', maxlength: '40', value: p.pixCidade || '' }, 'input', 'O código Pix exige a cidade de quem recebe.'),
-      el('h2', {}, 'Sugestão para novos alunos'),
-      el('p', { class: 'pequeno suave' }, 'Estes valores só preenchem o cadastro de um aluno novo, para você digitar menos. Cada aluno pode ter mensalidade e dia próprios, e mudar aqui não altera quem já está cadastrado.'),
-      el('div', { class: 'dupla' },
-        campo('Mensalidade (R$)', { id: 'valorPadrao', name: 'valorPadrao', type: 'text', inputmode: 'decimal', placeholder: '250,00', value: p.valorPadrao ? (p.valorPadrao / 100).toFixed(2).replace('.', ',') : '' }),
-        campo('Dia de vencimento', { id: 'diaPadrao', name: 'diaPadrao', type: 'number', min: '1', max: '28', value: p.diaPadrao || 5 })
-      ),
+      el('h2', {}, 'Mensagens'),
       el('div', { class: 'campo' }, el('label', { for: 'tom' }, 'Tom das mensagens com IA'), tom, el('p', { class: 'pequeno suave' }, 'Usado quando você pede para a IA reescrever um lembrete ou sugerir frases.')),
       el('h2', {}, 'Você'),
       campo('Seu nome', { id: 'nome', name: 'nome', type: 'text', required: true, value: p.nome }),
