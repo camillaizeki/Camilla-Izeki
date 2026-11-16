@@ -33,6 +33,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html, body { margin: 0; }
 
@@ -133,6 +134,25 @@ h3 { font-family: var(--titulo); font-weight: 700; font-size: 16px; }
 }
 .campo input:focus, .campo select:focus, .campo textarea:focus { outline: none; border-color: var(--marca-forte); box-shadow: var(--anel); }
 .campo textarea { min-height: 130px; resize: vertical; }
+/* iPhone: campos de data e mês têm largura própria e vazavam da tela */
+input[type='date'], input[type='month'] { -webkit-appearance: none; appearance: none; display: block; min-width: 0; max-width: 100%; text-align: left; }
+input::-webkit-date-and-time-value { text-align: left; }
+
+/* Pergunta com opções em botões (no lugar de caixinhas de marcar) */
+.pergunta { margin: 0; padding: 16px; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--superficie); box-shadow: var(--sombra); display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.pergunta legend { float: left; width: 100%; padding: 0; font-weight: 600; font-size: 14px; line-height: 1.4; }
+.pergunta legend + * { clear: both; }
+.opcoes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.opcao {
+  min-height: 48px; padding: 8px 10px; border: 1.5px solid var(--linha-forte); border-radius: 14px;
+  background: var(--superficie); color: var(--tinta); font: inherit; font-weight: 600; font-size: 14px; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.opcao[aria-pressed='true'] { background: var(--marca-suave); border-color: var(--marca-forte); color: var(--marca-texto); }
+.rotulo-campo { font-size: 13px; font-weight: 600; }
+.contador { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px; border: 1.5px solid var(--linha-forte); border-radius: 16px; background: var(--fundo); }
+.contador strong { font-family: var(--titulo); font-size: 20px; }
+.contador .icone-botao { box-shadow: none; font-size: 24px; color: var(--marca-forte); }
 .marca { display: flex; align-items: center; gap: 12px; min-height: 44px; }
 .marca input { width: 22px; height: 22px; margin: 0; flex-shrink: 0; accent-color: var(--marca-forte); }
 .dupla { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
@@ -236,16 +256,20 @@ h3 { font-family: var(--titulo); font-weight: 700; font-size: 16px; }
 canvas.arte { width: 252px; height: 448px; border-radius: 22px; align-self: center; background: var(--profundo); box-shadow: 0 24px 48px -24px rgba(14, 61, 55, 0.8); }
 
 /* Folha que sobe de baixo */
-.folha-fundo { position: fixed; inset: 0; background: rgba(15, 42, 39, 0.45); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: flex; align-items: flex-end; justify-content: center; z-index: 10; animation: aparecer 0.2s ease both; }
+.folha-fundo { position: fixed; inset: 0; background: rgba(15, 42, 39, 0.45); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+.folha-fundo.entrando { animation: aparecer 0.2s ease both; }
 .folha {
   width: 100%; max-width: 460px; max-height: 92vh; overflow-y: auto;
   display: flex; flex-direction: column; gap: 14px;
   padding: 14px 22px max(24px, env(safe-area-inset-bottom));
   border-radius: 28px 28px 0 0; background: var(--fundo);
   box-shadow: 0 -12px 40px -12px rgba(15, 42, 39, 0.35);
-  animation: subir 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both;
+  overscroll-behavior: contain;
+  will-change: transform;
 }
-.folha::before { content: ''; align-self: center; width: 40px; height: 5px; border-radius: 99px; background: var(--linha-forte); flex-shrink: 0; }
+.folha.entrando { animation: subir 0.28s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+/* Alça: indica que dá para arrastar para baixo e fechar */
+.folha::before { content: ''; align-self: center; width: 44px; height: 5px; margin: 2px 0 4px; border-radius: 99px; background: var(--linha-forte); flex-shrink: 0; }
 @keyframes subir { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes aparecer { from { opacity: 0; } to { opacity: 1; } }
 

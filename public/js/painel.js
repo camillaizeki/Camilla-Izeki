@@ -1,5 +1,5 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
-import { api, el, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
+import { api, el, icone, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
 import { iniciarInstalacao, avisoInstalar, secaoInstalar } from './instalar.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
@@ -322,7 +322,12 @@ function cartaoAluno(a) {
     a.pagoAte && el('p', { class: 'pequeno' }, `Pago adiantado até ${a.pagoAte}.`),
     m?.informado && el('p', { class: 'pequeno suave' }, 'O aluno avisou que pagou. Confira antes de marcar.'),
     m && el('button', { class: 'botao menor', onclick: () => marcarPago(a, m) }, `Marcar ${m.rotulo.split(' ')[0]} como pago`),
-    el('button', { class: 'link pequeno', style: 'align-self: flex-start; min-height: 32px', onclick: () => abrirAluno(a) }, 'Ver aluno, histórico e pausas')
+    el('div', { class: 'dupla' },
+      el('button', { class: 'botao claro menor', onclick: () => abrirAluno(a) }, icone('relogio', { tamanho: 18 }), 'Histórico'),
+      a.emPausa
+        ? el('button', { class: 'botao claro menor', onclick: () => abrirAluno(a) }, icone('pausa', { tamanho: 18 }), 'Ver pausa')
+        : el('button', { class: 'botao claro menor', disabled: a.status === 'inativo', onclick: () => abrirAluno(a, { novaPausa: true }) }, icone('pausa', { tamanho: 18 }), 'Pausar')
+    )
   );
 }
 
@@ -471,12 +476,80 @@ function folhaFila() {
 }
 
 async function fecharFolha() {
+  if (!folha) return;
   folha = null;
   erro = '';
+  desenhar();
   try {
     await carregar();
+    if (!folha) desenhar();
   } catch { /* mantém o que já está na tela */ }
-  desenhar();
+}
+
+// A janela entra no histórico do navegador: o gesto de voltar (iPhone) e o botão voltar (Android) fecham a janela
+// em vez de sair do painel.
+let folhaNoHistorico = false;
+let tipoAnterior = null;
+function sincronizarHistorico() {
+  if (folha && !folhaNoHistorico) {
+    history.pushState({ folha: true }, '');
+    folhaNoHistorico = true;
+  } else if (!folha && folhaNoHistorico) {
+    folhaNoHistorico = false;
+    if (history.state?.folha) history.back();
+  }
+}
+window.addEventListener('popstate', () => {
+  if (!folhaNoHistorico) return;
+  folhaNoHistorico = false;
+  fecharFolha();
+});
+
+// Arrastar a janela para baixo fecha; tocar fora dela também.
+function janelaDeslizante(conteudo) {
+  const entrando = !folhaNoHistorico; // só anima na abertura, não a cada atualização
+  const janela = el('div', { class: 'folha' + (entrando ? ' entrando' : ''), role: 'dialog', 'aria-modal': 'true' }, conteudo);
+  const fundo = el('div', { class: 'folha-fundo' + (entrando ? ' entrando' : ''), onclick: (e) => { if (e.target === fundo) fecharAnimado(); } }, janela);
+  let inicioY = null;
+  let deslocamento = 0;
+  let instante = 0;
+  function fecharAnimado() {
+    janela.style.transition = 'transform 0.22s ease-in';
+    janela.style.transform = 'translateY(105%)';
+    fundo.style.transition = 'opacity 0.22s ease-in';
+    fundo.style.opacity = '0';
+    setTimeout(fecharFolha, 200);
+  }
+  janela.addEventListener('touchstart', (e) => {
+    if (e.target.closest('input, textarea, select')) return;
+    const naAlca = e.touches[0].clientY - janela.getBoundingClientRect().top < 48;
+    if (janela.scrollTop > 0 && !naAlca) return;
+    inicioY = e.touches[0].clientY;
+    deslocamento = 0;
+    instante = Date.now();
+    janela.style.transition = 'none';
+  }, { passive: true });
+  janela.addEventListener('touchmove', (e) => {
+    if (inicioY == null) return;
+    deslocamento = Math.max(0, e.touches[0].clientY - inicioY);
+    if (deslocamento > 0) {
+      e.preventDefault();
+      janela.style.transform = `translateY(${deslocamento}px)`;
+      fundo.style.opacity = String(Math.max(0.3, 1 - deslocamento / 500));
+    }
+  }, { passive: false });
+  const soltar = () => {
+    if (inicioY == null) return;
+    inicioY = null;
+    const rapido = deslocamento > 40 && deslocamento / Math.max(1, Date.now() - instante) > 0.6;
+    if (deslocamento > 120 || rapido) return fecharAnimado();
+    janela.style.transition = 'transform 0.2s ease-out';
+    janela.style.transform = '';
+    fundo.style.opacity = '';
+  };
+  janela.addEventListener('touchend', soltar);
+  janela.addEventListener('touchcancel', soltar);
+  return fundo;
 }
 
 // ---------- Aluno: histórico, pagamento, cadastro e pausas ----------
@@ -502,8 +575,8 @@ async function agirNaFolha(funcao) {
 const alunoDaFolha = () => dados.alunos.find((x) => x.id === folha.id);
 const irPara = (tipo, extra = {}) => { erro = ''; folha = { ...folha, ...extra, tipo }; desenhar(); };
 
-async function abrirAluno(a) {
-  folha = { tipo: 'aluno', id: a.id, mensalidades: null };
+async function abrirAluno(a, extra = {}) {
+  folha = { tipo: 'aluno', id: a.id, mensalidades: null, ...extra };
   desenhar();
   await agirNaFolha(async () => {});
 }
@@ -1015,6 +1088,9 @@ function desenhar() {
   const abas = [['inicio', 'Início'], ['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Conquista'], ['conta', 'Conta']];
   const conteudo = { inicio: abaInicio, alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
   const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario };
+  // Mantém a rolagem da janela quando ela é redesenhada com o mesmo conteúdo.
+  const rolagem = folha && folha.tipo === tipoAnterior ? document.querySelector('.folha')?.scrollTop || 0 : 0;
+  tipoAnterior = folha?.tipo || null;
   montar(
     el('header', { class: 'cabeca' },
       el('img', { class: 'cabeca-icone', src: '/icones/icone-192.png', alt: '' }),
@@ -1026,8 +1102,10 @@ function desenhar() {
     aba !== 'conta' && avisoInstalar(),
     erro && !folha && aba !== 'conta' && el('p', { class: 'erro', role: 'alert' }, erro),
     conteudo(),
-    folha && el('div', { class: 'folha-fundo' }, el('div', { class: 'folha', role: 'dialog', 'aria-modal': 'true' }, folhas[folha.tipo]()))
+    folha && janelaDeslizante(folhas[folha.tipo]())
   );
+  if (rolagem) document.querySelector('.folha').scrollTop = rolagem;
+  sincronizarHistorico();
 }
 
 iniciarInstalacao(() => {
