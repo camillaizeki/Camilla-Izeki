@@ -387,8 +387,9 @@ async function rotear(request, env, partes) {
     const pixChave = pixTipo && String(d.pixChave || '').trim() ? normalizarChave(pixTipo, d.pixChave).slice(0, 80) : null;
     const pixNome = String(d.pixNome || '').trim().slice(0, 60) || null;
     const pixCidade = String(d.pixCidade || '').trim().slice(0, 40) || null;
-    const valorPadrao = d.valorPadrao ? inteiro(d.valorPadrao, 100, 10000000, 'mensalidade') : null;
-    const diaPadrao = inteiro(d.diaPadrao || 5, 1, 28, 'dia de renovação');
+    // Mensalidade e vencimento são definidos aluno a aluno; não há mais valor sugerido.
+    const valorPadrao = null;
+    const diaPadrao = null;
     const tom = TONS[d.tom] ? d.tom : 'zoeiro';
     await db
       .prepare('UPDATE personais SET nome = ?, pix_tipo = ?, pix_chave = ?, pix_nome = ?, pix_cidade = ?, valor_padrao = ?, dia_padrao = ?, tom = ? WHERE id = ?')
@@ -755,7 +756,7 @@ async function rotear(request, env, partes) {
           'INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, data_inicio, meses_pausa, base_meses, seq_base, mes_cadastro, status, valor, dia_venc, criado_em) ' +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?, ?, ?)"
         )
-        .bind(p.id, token, nome, whats, mesInicio, mesInicio ? mesInicio + '-01' : null, pausa, base, pausa > 0 ? 0 : base, mesCadastro, p.valor_padrao, p.dia_padrao || 5, new Date().toISOString())
+        .bind(p.id, token, nome, whats, mesInicio, mesInicio ? mesInicio + '-01' : null, pausa, base, pausa > 0 ? 0 : base, mesCadastro, null, null, new Date().toISOString())
         .run();
       return json({ token });
     }
