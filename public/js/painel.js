@@ -1,5 +1,6 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
 import { api, el, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
+import { iniciarInstalacao, avisoInstalar, secaoInstalar } from './instalar.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
 let aba = 'inicio';
@@ -978,6 +979,7 @@ function abaConta() {
         }),
       }, p.temCodigo ? 'Gerar novo código' : 'Gerar código de recuperação')
     ),
+    secaoInstalar(),
     el('button', { class: 'link', onclick: () => agir(async () => { await api('conta/sair', 'POST', {}); dados = null; }) }, 'Sair da conta'),
   ];
 }
@@ -1018,11 +1020,16 @@ function desenhar() {
     el('nav', { class: 'abas', 'aria-label': 'Seções do painel' },
       abas.map(([id, rotulo]) => el('button', { class: 'aba', 'aria-pressed': String(aba === id), onclick: () => trocarAba(id) }, rotulo))
     ),
+    aba !== 'conta' && avisoInstalar(),
     erro && !folha && aba !== 'conta' && el('p', { class: 'erro', role: 'alert' }, erro),
     conteudo(),
     folha && el('div', { class: 'folha-fundo' }, el('div', { class: 'folha', role: 'dialog', 'aria-modal': 'true' }, folhas[folha.tipo]()))
   );
 }
+
+iniciarInstalacao(() => {
+  if (dados && !codigoNovo && !folha) desenhar();
+});
 
 try {
   await carregar();

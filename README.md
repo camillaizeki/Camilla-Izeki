@@ -16,6 +16,7 @@ O personal acompanha tudo em um painel e envia lembretes pelo próprio WhatsApp.
 - **Lembretes:** o painel abre o WhatsApp do personal com a mensagem pronta para cada aluno. O tom com o aluno é sempre leve.
 - **Página do aluno:** trilha de meses, selos, Pix copia e cola e arte para compartilhar. O "Já paguei" do aluno é só um aviso; quem confirma é o personal.
 - **IA:** sugere frases para a arte e reescreve o lembrete. O personal sempre aprova antes.
+- **App na tela de início:** o painel é um PWA. No celular, o personal vê um aviso para colocar o Renova.AI na tela de início. No Android há um botão de instalar; no iPhone, o passo a passo do Safari. Nada passa pela App Store ou pelo Google Play. O "Agora não" esconde o aviso por 7 dias, e a opção continua na aba Conta.
 
 Não há provedor de pagamento nem envio automático de mensagens: o custo de operação é zero.
 
@@ -32,6 +33,7 @@ Opcional: a variável `AI_MODEL` troca o modelo de IA (o padrão é `@cf/meta/ll
 ## Estrutura
 
 - `public/`: telas (convite, aluno, painel) em HTML, CSS e JavaScript puro, sem etapa de build.
+  `manifest.webmanifest`, `sw.js` e `icones/` fazem o painel funcionar como app instalável.
 - `src/`: servidor (Cloudflare Workers). A entrada é `src/worker.js` e a API fica em `src/api.js`.
 - `lib/`: regras da jornada (meses, selos, sequência), mensalidades, geração do Pix e estrutura do banco.
   As mudanças no banco só acrescentam tabelas e colunas; a conversão dos dados antigos roda uma vez e é coberta por teste.

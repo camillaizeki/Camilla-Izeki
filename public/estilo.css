@@ -145,3 +145,10 @@ button.numero strong { text-decoration: underline; text-underline-offset: 3px; }
 /* Abas com largura conforme o texto; em telas muito estreitas, quebram em duas linhas. */
 .abas { display: flex; flex-wrap: wrap; gap: 4px; }
 .aba { flex: 1 1 auto; padding: 0 3px; white-space: nowrap; }
+
+/* Convite para instalar o painel na tela de início */
+.instalar { border: 1.5px solid var(--tinta); }
+.instalar-icone { width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0; }
+.instalar .link { align-self: center; min-height: 36px; }
+.passos { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.tecla { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 8px; background: var(--fundo); border: 1px solid var(--linha); font-weight: 600; white-space: nowrap; vertical-align: middle; }

@@ -10,7 +10,7 @@ const env = {
   ADMIN_KEY: process.env.ADMIN_KEY || 'chave-local-de-teste-1234567890',
   AI: { run: async () => ({ response: 'Mais um mês sobrevivendo aos treinos\nMinhas pernas pediram férias, eu renovei\nTreino em dia, preguiça atrasada' }) },
 };
-const TIPOS = { html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/json' };
+const TIPOS = { html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/json', webmanifest: 'application/manifest+json', png: 'image/png', svg: 'image/svg+xml' };
 
 http
   .createServer(async (req, res) => {
