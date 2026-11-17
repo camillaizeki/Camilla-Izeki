@@ -81,7 +81,7 @@ function acaoDaTrilha() {
   if (d.modo === 'pacote') return acaoDoPacote();
   if (d.situacao === 'informado') {
     return [
-      el('p', { class: 'pequeno suave centro' }, `${P()} vai confirmar o recebimento e ${d.nomeAlvo} fica desbloqueado.`),
+      el('p', { class: 'pequeno suave centro' }, `Pagamento avisado! Assim que ${P()} confirmar o recebimento, ${d.nomeAlvo} será desbloqueado na sua trilha.`),
       el('button', { class: 'botao lima', onclick: () => ir('arte') }, 'Compartilhar conquista'),
     ];
   }

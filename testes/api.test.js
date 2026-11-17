@@ -293,9 +293,20 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   env.AI = { run: async () => ({ response: '1. "Mais um mês e o Rafael ainda me aguenta"\n- Sobrevivi a mais 30 dias de agachamento\n\ncurta' }) };
   r = await chamar('ia/frases', 'POST', { tom: 'zoeiro' });
   assert.deepEqual(r.corpo.frases, ['Mais um mês e o Rafael ainda me aguenta', 'Sobrevivi a mais 30 dias de agachamento']);
-  env.AI = { run: async () => ({ response: '"Ana, sua jornada segue firme!"' }) };
+  // Se o primeiro modelo falhar, tenta o seguinte
+  const usados = [];
+  env.AI = { run: async (modelo) => { usados.push(modelo); if (usados.length === 1) throw new Error('5028: This model was deprecated'); return { response: '"Ana, sua jornada segue firme!"' }; } };
   r = await chamar('ia/lembrete', 'POST', { alunoId: ana.id });
   assert.equal(r.corpo.texto, 'Ana, sua jornada segue firme!');
+  assert.equal(usados.length, 2);
+  assert.ok(!usados.includes('@cf/meta/llama-3.1-8b-instruct')); // modelo desativado em 30/05/2026
+  // Cota do dia esgotada: mensagem específica
+  env.AI = { run: async () => { throw new Error('4006: you have used up your daily free allocation of 10,000 neurons'); } };
+  r = await chamar('ia/frases', 'POST', { tom: 'zoeiro' });
+  assert.equal(r.status, 503);
+  assert.ok(r.corpo.erro.includes('limite gratuito de hoje'));
+  env.AI = { run: async () => { throw new Error('falha qualquer'); } };
+  assert.ok((await chamar('ia/frases', 'POST', { tom: 'zoeiro' })).corpo.erro.includes('Tente de novo'));
 
   // Excluir aluno
   assert.equal((await chamar('alunos/' + ana.id, 'DELETE')).status, 200);

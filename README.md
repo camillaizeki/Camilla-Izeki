@@ -30,7 +30,7 @@ Na publicação, a Cloudflare cria o banco e liga a IA sozinha, e as tabelas sã
 
 Cada alteração enviada ao GitHub é publicada automaticamente.
 
-Opcional: a variável `AI_MODEL` troca o modelo de IA (o padrão é `@cf/meta/llama-3.1-8b-instruct`).
+Opcional: a variável `AI_MODEL` define o modelo de IA preferido. Sem ela, o app usa `@cf/meta/llama-3.3-70b-instruct-fp8-fast` e, se falhar, `@cf/meta/llama-3.1-8b-instruct-fast`.
 
 ## Estrutura
 

@@ -6,7 +6,9 @@ import { calcular, fases, hojeBR, chaveMes, somaMes, mesesBase, marcoDe, dataISO
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
-const MODELO_PADRAO = '@cf/meta/llama-3.1-8b-instruct';
+// Modelos de IA, em ordem de preferência: se o primeiro falhar, tenta o seguinte.
+// O antigo @cf/meta/llama-3.1-8b-instruct foi desativado pela Cloudflare em 30/05/2026.
+const MODELOS = ['@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/meta/llama-3.1-8b-instruct-fast'];
 const TRINTA_DIAS = 30 * 24 * 3600;
 
 class Falha extends Error {
@@ -310,22 +312,34 @@ async function alunoDoPersonal(db, personal, id) {
 
 async function pedirIA(env, sistema, pedido) {
   if (!env.AI) throw new Falha('A IA ainda não está ligada neste app. Use o texto padrão.', 503);
-  try {
-    const r = await env.AI.run(env.AI_MODEL || MODELO_PADRAO, {
-      messages: [
-        { role: 'system', content: sistema },
-        { role: 'user', content: pedido },
-      ],
-      max_tokens: 350,
-      temperature: 0.9,
-    });
-    const saida = r?.response ?? r?.choices?.[0]?.message?.content ?? '';
-    if (!String(saida).trim()) throw new Error('resposta vazia');
-    return String(saida).trim();
-  } catch (e) {
-    console.error('IA', e);
-    throw new Falha('A IA não respondeu agora (pode ter chegado ao limite de hoje). Use o texto padrão.', 503);
+  const modelos = env.AI_MODEL ? [env.AI_MODEL, ...MODELOS] : MODELOS;
+  let ultimoErro = '';
+  for (const modelo of modelos) {
+    try {
+      const r = await env.AI.run(modelo, {
+        messages: [
+          { role: 'system', content: sistema },
+          { role: 'user', content: pedido },
+        ],
+        max_tokens: 350,
+        temperature: 0.9,
+      });
+      const saida = r?.response ?? r?.choices?.[0]?.message?.content ?? '';
+      if (!String(saida).trim()) throw new Error('resposta vazia');
+      return String(saida).trim();
+    } catch (e) {
+      ultimoErro = String(e?.message || e);
+      console.error('IA', modelo, ultimoErro); // aparece em Observability, no painel da Cloudflare
+    }
   }
+  // 4006: acabou a cota gratuita do dia (volta no dia seguinte).
+  const limite = /4006|daily free allocation|neurons/i.test(ultimoErro);
+  throw new Falha(
+    limite
+      ? 'A IA chegou ao limite gratuito de hoje. Amanhã ela volta; até lá, use o texto padrão.'
+      : 'A IA não respondeu agora. Tente de novo em alguns minutos ou use o texto padrão.',
+    503
+  );
 }
 
 const TONS = {
