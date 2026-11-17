@@ -20,7 +20,10 @@ O personal acompanha tudo em um painel e envia lembretes pelo próprio WhatsApp.
 - **IA:** sugere frases para a arte e reescreve o lembrete. O personal sempre aprova antes.
 - **App na tela de início:** o painel é um PWA. No celular, o personal vê um aviso para colocar o Renova.AI na tela de início. No Android há um botão de instalar; no iPhone, o passo a passo do Safari. Nada passa pela App Store ou pelo Google Play. O "Agora não" esconde o aviso por 7 dias, e a opção continua na aba Conta.
 
-Não há provedor de pagamento nem envio automático de mensagens: o custo de operação é zero.
+- **Assinatura do app:** cada personal ganha 7 dias de teste grátis. Depois, o painel trava e mostra os planos: mensal (R$ 24,90) ou anual (R$ 199,00), com 5% de desconto no Pix. No cartão, o anual parcela em até 12x, com os juros do parcelamento por conta de quem paga. O pagamento passa pelo Mercado Pago e libera o acesso sozinho. Não há renovação automática: o app avisa nos últimos 5 dias e os dias que ainda restam são somados. Com o painel travado, os alunos e os links continuam funcionando.
+- **Administração (`/admin`):** resumo com receita do mês, receita recorrente, conversão do teste e gráfico de 12 meses; lista de usuários com situação, alunos e total pago; ajustes de acesso (somar dias, data final, cortesia, suspender), pagamento recebido por fora, código de recuperação de senha; lista de pagamentos com conferência no Mercado Pago; e configuração de preços, dias de teste, desconto no Pix e parcelas.
+
+O pagamento entre aluno e personal continua fora do app (Pix direto). Só a assinatura do personal passa pelo Mercado Pago.
 
 ## Publicar na Cloudflare (gratuito)
 
@@ -32,12 +35,29 @@ Cada alteração enviada ao GitHub é publicada automaticamente.
 
 Opcional: a variável `AI_MODEL` define o modelo de IA preferido. Sem ela, o app usa `@cf/meta/llama-3.3-70b-instruct-fp8-fast` e, se falhar, `@cf/meta/llama-3.1-8b-instruct-fast`.
 
+## Pagamento da assinatura (Mercado Pago)
+
+1. Crie uma conta no Mercado Pago e, em *Suas integrações*, crie uma aplicação (Checkout Pro).
+2. Copie o **Access Token de produção** e cadastre na Cloudflare como segredo `MP_ACCESS_TOKEN`
+   (*Settings > Variables and Secrets*, tipo *Secret*). Um token de teste (`TEST-...`) abre o ambiente de testes.
+3. Em *Webhooks* da aplicação, cadastre `https://SEU-ENDERECO/api/assinatura/webhook` com o evento **Pagamentos**.
+   Opcional: copie a assinatura secreta e cadastre como segredo `MP_WEBHOOK_SECRET`.
+4. Deixe o "parcelamento sem juros" desligado na conta: assim os juros das parcelas ficam com quem paga.
+
+Sem o token, o app mostra os planos com o aviso de que o pagamento está sendo ativado. A administração pode liberar acesso
+manualmente (cortesia, dias extras ou pagamento recebido por fora). Ao publicar esta versão, quem já tinha conta ganha 7 dias de teste
+a partir da atualização.
+
+Para testar no computador com um Mercado Pago simulado (todo pagamento é aprovado na hora):
+`MP_SIMULADO=1 node testes/servidor-local.js`
+
 ## Estrutura
 
 - `public/`: telas (convite, aluno, painel) em HTML, CSS e JavaScript puro, sem etapa de build.
   `manifest.webmanifest`, `sw.js` e `icones/` fazem o painel funcionar como app instalável.
 - `src/`: servidor (Cloudflare Workers). A entrada é `src/worker.js` e a API fica em `src/api.js`.
-- `lib/`: regras da jornada (meses, selos, sequência), mensalidades, geração do Pix e estrutura do banco.
+- `lib/`: regras da jornada (meses, selos, sequência), mensalidades, geração do Pix, assinatura do app (`assinatura.js`),
+  Mercado Pago (`mercadopago.js`) e estrutura do banco.
   As mudanças no banco só acrescentam tabelas e colunas; a conversão dos dados antigos roda uma vez e é coberta por teste.
 - `testes/`: testes automáticos e um servidor local com banco em memória.
 
@@ -55,6 +75,6 @@ node testes/servidor-local.js   # abre o app em http://localhost:8788
 Não há envio de e-mail. Ao criar a conta, o personal recebe um código de recuperação (mostrado uma vez).
 Em "Esqueci minha senha", ele informa e-mail, código e a senha nova. Um novo código pode ser gerado na aba Conta.
 
-Quem perder a senha e o código pede ajuda à administração. Em `/admin`, com a chave de administração,
+Quem perder a senha e o código pede ajuda à administração. Em `/admin`, na ficha do usuário,
 gera-se um código novo para o e-mail da conta. A chave fica na Cloudflare como segredo `ADMIN_KEY`
 (em *Settings > Variables and Secrets*, tipo *Secret*, com 20 caracteres ou mais). Sem esse segredo, a área fica desligada.

@@ -10,6 +10,24 @@ const env = {
   ADMIN_KEY: process.env.ADMIN_KEY || 'chave-local-de-teste-1234567890',
   AI: { run: async () => ({ response: 'Mais um mês sobrevivendo aos treinos\nMinhas pernas pediram férias, eu renovei\nTreino em dia, preguiça atrasada' }) },
 };
+
+// MP_SIMULADO=1 simula o Mercado Pago: o "pagamento" volta direto ao painel como aprovado.
+if (process.env.MP_SIMULADO) {
+  const prefs = new Map();
+  env.MP_ACCESS_TOKEN = 'APP_USR-simulado-local';
+  env.MP_FETCH = async (url, opcoes) => {
+    const u = new URL(url);
+    const responder = (d) => new Response(JSON.stringify(d), { headers: { 'content-type': 'application/json' } });
+    if (u.pathname === '/checkout/preferences') {
+      const pref = JSON.parse(opcoes.body);
+      prefs.set(pref.external_reference, pref);
+      return responder({ id: 'pref-' + pref.external_reference, init_point: pref.back_urls.success });
+    }
+    const ref = u.searchParams.get('external_reference');
+    const pref = prefs.get(ref);
+    return responder({ results: pref ? [{ id: Number(ref) + 9000, external_reference: ref, status: 'approved', currency_id: 'BRL', transaction_amount: pref.items[0].unit_price, installments: 1 }] : [] });
+  };
+}
 const TIPOS = { html: 'text/html; charset=utf-8', css: 'text/css', js: 'text/javascript', json: 'application/json', webmanifest: 'application/manifest+json', png: 'image/png', svg: 'image/svg+xml' };
 
 http

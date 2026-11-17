@@ -61,7 +61,13 @@ test('banco da primeira versão é convertido para o controle de mensalidades', 
     { valor_previsto: 25000, vencimento: '2027-01-05', recebido_em: null }
   );
 
-  assert.equal(um("SELECT valor FROM meta WHERE chave = 'versao'").valor, '4');
+  assert.equal(um("SELECT valor FROM meta WHERE chave = 'versao'").valor, '5');
+
+  // Versão 5: contas que já existiam ganham 7 dias de teste a partir da atualização
+  const conta = um('SELECT plano, acesso_ate FROM personais LIMIT 1');
+  assert.equal(conta.plano, 'teste');
+  const dias = (Date.parse(conta.acesso_ate) - Date.now()) / 86400000;
+  assert.ok(dias > 6.9 && dias <= 7, 'teste de 7 dias para quem já tinha conta');
 
   // Rodar de novo não repete a conversão (não cria outra pausa nem desconta outro mês)
   esquecerBanco();
