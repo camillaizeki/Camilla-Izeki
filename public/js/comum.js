@@ -21,6 +21,7 @@ export async function api(caminho, metodo = 'GET', dados) {
   if (!resposta.ok) {
     const erro = new Error(corpo.erro || 'Algo deu errado. Tente de novo.');
     erro.status = resposta.status;
+    erro.dados = corpo;
     throw erro;
   }
   return corpo;

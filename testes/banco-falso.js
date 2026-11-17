@@ -7,7 +7,10 @@ export function bancoFalso() {
     bind: (...v) => preparar(sql, v.map((x) => (x === undefined ? null : x))),
     first: async () => sqlite.prepare(sql).get(...valores) ?? null,
     all: async () => ({ results: sqlite.prepare(sql).all(...valores) }),
-    run: async () => ({ meta: { last_row_id: Number(sqlite.prepare(sql).run(...valores).lastInsertRowid) } }),
+    run: async () => {
+      const r = sqlite.prepare(sql).run(...valores);
+      return { meta: { last_row_id: Number(r.lastInsertRowid), changes: Number(r.changes) } };
+    },
   });
   return {
     sqlite,

@@ -330,3 +330,40 @@ button.numero strong { text-decoration: underline; text-decoration-color: var(--
 
 /* Números das etapas na aba Novos */
 .etapa-num { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--marca-suave); color: var(--marca-texto); font-weight: 700; font-size: 14px; }
+
+/* Planos do Renova.AI */
+.planos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.plano {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  padding: 16px 14px 14px; border-radius: var(--raio); border: 1.5px solid var(--linha-forte);
+  background: var(--superficie); color: var(--tinta); font: inherit; text-align: left; cursor: pointer;
+  box-shadow: var(--sombra); transition: border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
+}
+.plano:active { transform: scale(0.98); }
+.plano[aria-pressed='true'] { border-color: var(--marca-forte); background: linear-gradient(160deg, var(--superficie) 30%, var(--marca-suave)); box-shadow: var(--anel), var(--sombra); }
+.plano-nome { font-size: 13px; font-weight: 600; color: var(--suave); text-transform: uppercase; letter-spacing: 0.06em; }
+.plano-preco { font-family: var(--titulo); font-size: 22px; letter-spacing: -0.02em; }
+.plano-selo { position: absolute; top: -11px; right: 10px; padding: 2px 9px; border-radius: 999px; background: var(--brilho); color: var(--tinta); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.plano-aviso { background: linear-gradient(160deg, var(--superficie) 40%, var(--brilho-suave)); border: 1.5px solid var(--brilho); }
+
+/* Administração: tela mais larga, tabelas e gráfico */
+body.admin #app { max-width: 980px; }
+.admin-topo { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.grade-numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.grade-numeros .numero strong { font-size: 20px; }
+.grafico { display: flex; align-items: flex-end; gap: 6px; height: 150px; padding-top: 18px; }
+.grafico .coluna-barra { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%; min-width: 0; }
+.grafico .coluna-barra > div { width: 100%; max-width: 34px; border-radius: 6px 6px 2px 2px; background: linear-gradient(180deg, var(--marca), var(--marca-forte)); min-height: 2px; }
+.grafico .coluna-barra.atual > div { background: linear-gradient(180deg, var(--brilho), #e88a1f); }
+.grafico span { font-size: 11px; color: var(--suave); white-space: nowrap; }
+.tabela-rolagem { overflow-x: auto; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--superficie); box-shadow: var(--sombra); }
+.tabela { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tabela th { text-align: left; font-weight: 600; color: var(--suave); padding: 10px 12px; border-bottom: 1px solid var(--linha); white-space: nowrap; background: var(--fundo); }
+.tabela td { padding: 10px 12px; border-bottom: 1px solid var(--linha); vertical-align: middle; }
+.tabela tr:last-child td { border-bottom: none; }
+.tabela tr.clicavel { cursor: pointer; }
+.tabela tr.clicavel:hover td { background: var(--marca-suave); }
+.tabela .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.acoes .botao { width: auto; padding: 0 16px; }
+.campo-busca { min-height: 44px; padding: 0 14px; border: 1.5px solid var(--linha-forte); border-radius: 13px; font: inherit; background: var(--superficie); width: 100%; }

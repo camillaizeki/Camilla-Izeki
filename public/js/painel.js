@@ -1,6 +1,7 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
 import { api, el, icone, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
 import { iniciarInstalacao, avisoInstalar, secaoInstalar } from './instalar.js';
+import { blocoPlanos, textoSituacao, voltaDoCheckout, avisoPagamento, SUPORTE } from './planos.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
 let aba = 'inicio';
@@ -12,7 +13,10 @@ let erro = '';
 let modoConta = 'entrar';
 let sugestoes = [];
 let codigoNovo = ''; // código de recuperação recém-gerado, mostrado uma vez
-let folha = null; // janela aberta por cima: fila de lembretes, aluno, pagamento, cadastro ou pausas
+let folha = null; // janela aberta por cima: fila de lembretes, aluno, pagamento, cadastro, pausas ou planos
+let travado = null; // { erro, assinatura } quando o teste ou o plano acabou
+let planos = null; // valores e situação da assinatura (GET /api/assinatura)
+let msgPagamento = null; // resultado da volta do checkout
 
 const P = () => dados.personal.nome;
 const linkAluno = (a) => `${location.origin}/a/${a.token}`;
@@ -22,10 +26,81 @@ const primeiro = (nome) => nome.trim().split(/\s+/)[0];
 async function carregar() {
   try {
     dados = await api('painel');
+    travado = null;
   } catch (e) {
-    if (e.status === 401) dados = null;
-    else throw e;
+    if (e.status === 401) {
+      dados = null;
+      travado = null;
+    } else if (e.status === 402) {
+      dados = null;
+      travado = e.dados;
+    } else throw e;
   }
+}
+
+async function carregarPlanos() {
+  try {
+    planos = await api('assinatura');
+  } catch { /* tenta de novo na próxima vez */ }
+}
+
+// ---------- Assinatura do app ----------
+
+function abrirPlanos() {
+  erro = '';
+  folha = { tipo: 'planos' };
+  desenhar();
+  carregarPlanos().then(() => { if (folha?.tipo === 'planos') desenhar(); });
+}
+
+function folhaPlanos() {
+  const a = dados.personal.assinatura;
+  return [
+    el('h2', {}, a.situacao === 'teste' ? 'Assine o Renova.AI' : 'Renove seu plano'),
+    el('p', { class: 'suave' }, textoSituacao(a) + (a.situacao === 'teste' ? ' Assinando agora, os dias que faltam continuam valendo.' : '')),
+    planos ? blocoPlanos(planos, desenhar) : el('p', { class: 'suave' }, 'Carregando planos…'),
+  ];
+}
+
+// Aviso no Início durante o teste e nos últimos dias do plano.
+function avisoPlano() {
+  const a = dados.personal.assinatura;
+  const fimDoPlano = a.situacao === 'ativa' && a.diasRestantes <= 5;
+  if (a.situacao !== 'teste' && !fimDoPlano) return null;
+  const t = planos?.planos;
+  const precos = t ? `${reais(t.mensal.cartao)}/mês ou ${reais(t.anual.cartao)}/ano${t.descontoPix ? `, com ${t.descontoPix}% de desconto no Pix` : ''}.` : '';
+  return el('div', { class: 'cartao plano-aviso' },
+    el('div', { class: 'linha entre' },
+      el('h3', {}, fimDoPlano ? 'Seu plano está acabando' : 'Teste grátis'),
+      el('span', { class: 'chip ' + (a.diasRestantes <= 2 ? 'forte' : 'lima') }, a.diasRestantes ? (a.diasRestantes === 1 ? '1 dia' : `${a.diasRestantes} dias`) : 'Hoje')
+    ),
+    el('p', { class: 'pequeno suave' }, fimDoPlano
+      ? `Renove para não perder o acesso ao painel. ${precos}`
+      : `Aproveite tudo do Renova.AI. Depois do teste: ${precos || 'planos mensal e anual.'}`),
+    el('button', { class: 'botao menor', onclick: abrirPlanos }, fimDoPlano ? 'Renovar agora' : 'Ver planos')
+  );
+}
+
+// Teste ou plano acabou: o painel fica travado, mas os alunos e o histórico continuam guardados.
+function telaTravada() {
+  const a = travado.assinatura;
+  if (!planos) carregarPlanos().then(() => { if (travado) desenhar(); });
+  const bloqueada = a.situacao === 'bloqueada';
+  return [
+    el('header', { class: 'cabeca' },
+      el('img', { class: 'cabeca-icone', src: '/icones/icone-192.png', alt: '' }),
+      el('p', { class: 'logo-texto' }, 'Renova', el('span', {}, '.AI'))
+    ),
+    avisoPagamento(msgPagamento),
+    el('div', { class: 'coluna' },
+      el('h1', {}, bloqueada ? 'Conta suspensa' : a.situacao === 'teste_encerrado' ? 'Seu teste grátis terminou' : 'Seu plano venceu'),
+      el('p', { class: 'suave' }, bloqueada
+        ? `Fale com a gente para entender o que houve: ${SUPORTE}.`
+        : 'Seus alunos, mensalidades e histórico continuam guardados, e os links dos alunos seguem funcionando. Escolha um plano para voltar a usar o painel.')
+    ),
+    !bloqueada && (planos ? blocoPlanos(planos, desenhar) : el('p', { class: 'suave' }, 'Carregando planos…')),
+    el('button', { class: 'link', onclick: () => agir(async () => { await api('conta/sair', 'POST', {}); travado = null; dados = null; }) }, 'Sair da conta'),
+  ];
 }
 
 async function agir(funcao) {
@@ -1302,6 +1377,11 @@ function abaConta() {
       botao
     ),
     el('div', { class: 'cartao' },
+      el('h3', {}, 'Seu plano'),
+      el('p', { class: 'pequeno suave' }, textoSituacao(p.assinatura)),
+      p.assinatura.situacao !== 'cortesia' && el('button', { class: 'botao claro menor', onclick: abrirPlanos }, p.assinatura.situacao === 'teste' ? 'Ver planos' : 'Renovar ou trocar de plano')
+    ),
+    el('div', { class: 'cartao' },
       el('h3', {}, 'Recuperação de senha'),
       el('p', { class: 'pequeno suave' }, p.temCodigo
         ? 'Você já tem um código de recuperação. Se perdeu, gere outro: o antigo deixa de valer.'
@@ -1324,6 +1404,7 @@ function abaConta() {
 async function trocarAba(id) {
   aba = id;
   erro = '';
+  msgPagamento = null;
   desfazer = null;
   desenhar();
   window.scrollTo(0, 0);
@@ -1334,7 +1415,7 @@ async function trocarAba(id) {
 }
 
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState !== 'visible' || !dados || folha) return;
+  if (document.visibilityState !== 'visible' || (!dados && !travado) || folha) return;
   if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
   try {
     await carregar();
@@ -1343,12 +1424,13 @@ document.addEventListener('visibilitychange', async () => {
 });
 
 function desenhar() {
-  if (!dados) return montar(telaConta());
   if (codigoNovo) return montar(telaCodigo());
+  if (!dados && travado) return montar(telaTravada());
+  if (!dados) return montar(telaConta());
   const novos = dados.alunos.filter((a) => a.status === 'novo').length;
   const abas = [['inicio', 'Início'], ['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Conquista'], ['conta', 'Conta']];
   const conteudo = { inicio: abaInicio, alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
-  const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario, pacote: folhaPacote, aula: folhaAula };
+  const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario, pacote: folhaPacote, aula: folhaAula, planos: folhaPlanos };
   // Mantém a rolagem da janela quando ela é redesenhada com o mesmo conteúdo.
   const rolagem = folha && folha.tipo === tipoAnterior ? document.querySelector('.folha')?.scrollTop || 0 : 0;
   tipoAnterior = folha?.tipo || null;
@@ -1360,6 +1442,8 @@ function desenhar() {
     el('nav', { class: 'abas', 'aria-label': 'Seções do painel' },
       abas.map(([id, rotulo]) => el('button', { class: 'aba', 'aria-pressed': String(aba === id), onclick: () => trocarAba(id) }, rotulo))
     ),
+    avisoPagamento(msgPagamento),
+    aba === 'inicio' && avisoPlano(),
     aba !== 'conta' && avisoInstalar(),
     erro && !folha && aba !== 'conta' && el('p', { class: 'erro', role: 'alert' }, erro),
     conteudo(),
@@ -1374,8 +1458,21 @@ iniciarInstalacao(() => {
 });
 
 try {
+  const volta = voltaDoCheckout(async (r) => {
+    // O Pix confirmou enquanto a tela estava aberta.
+    msgPagamento = r;
+    await carregar();
+    desenhar();
+  });
   await carregar();
+  msgPagamento = await volta;
+  if (msgPagamento?.status === 'aprovado') await carregar();
   desenhar();
+  const a = dados?.personal.assinatura;
+  if (a && (a.situacao === 'teste' || (a.situacao === 'ativa' && a.diasRestantes <= 5))) {
+    await carregarPlanos();
+    if (!folha) desenhar();
+  }
 } catch (e) {
   montar(el('h1', {}, 'Não foi possível abrir o painel'), el('p', { class: 'suave' }, e.message));
 }
