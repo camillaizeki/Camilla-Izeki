@@ -327,3 +327,6 @@ button.numero strong { text-decoration: underline; text-decoration-color: var(--
 /* Lista ainda sem escolha aparece em cinza, como os textos de exemplo */
 .campo select:invalid { color: #6b7d78; }
 .campo select option { color: var(--tinta); }
+
+/* Números das etapas na aba Novos */
+.etapa-num { flex-shrink: 0; width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--marca-suave); color: var(--marca-texto); font-weight: 700; font-size: 14px; }

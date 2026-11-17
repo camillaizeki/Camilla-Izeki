@@ -84,6 +84,17 @@ test('trilha mostra conquistadas, a próxima e as bloqueadas', () => {
   assert.equal(f[6].estado, 'travada');
 });
 
+test('aluno recém-cadastrado pelo convite vê a mesma contagem antes e depois da confirmação', () => {
+  const hoje = { ano: 2026, mes: 11, dia: 15 };
+  // Disse que treina desde junho: junho a outubro são 5 meses; novembro conta quando for pago.
+  const novo = { status: 'novo', mes_inicio: '2026-06', mes_cadastro: '2026-11', mes_controle: null, base_meses: 5, seq_base: 5, dia_venc: 20 };
+  assert.equal(calcular(novo, [], hoje).meses, 5);
+  assert.equal(calcular({ ...novo, status: 'ativo', mes_controle: '2026-11' }, [], hoje).meses, 5);
+  // Sem data de início, a jornada começa do zero nos dois momentos.
+  const semData = { status: 'novo', mes_cadastro: '2026-11', mes_controle: null, base_meses: 0, seq_base: 0, dia_venc: 20 };
+  assert.equal(calcular(semData, [], hoje).meses, 0);
+});
+
 test('lançar pagamentos de meses antigos não conta os meses em dobro', () => {
   // Treina desde janeiro; o controle começou em novembro; o personal lançou janeiro a novembro como pagos.
   const camilla = { mes_inicio: '2026-01', base_meses: 10, seq_base: 10, mes_cadastro: '2026-11', mes_controle: '2026-11', dia_venc: 5, status: 'ativo' };

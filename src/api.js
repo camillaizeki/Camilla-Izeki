@@ -1,7 +1,7 @@
 // API do Renova.AI: atende tudo que começa com /api/.
 import { prepararBanco, FRASES_PADRAO } from '../lib/banco.js';
 import { gerarPix, normalizarChave } from '../lib/pix.js';
-import { calcular, fases, hojeBR, chaveMes, somaMes, mesesIniciais, mesesBase, marcoDe, dataISO } from '../lib/jornada.js';
+import { calcular, fases, hojeBR, chaveMes, somaMes, mesesBase, marcoDe, dataISO } from '../lib/jornada.js';
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
@@ -749,7 +749,7 @@ async function rotear(request, env, partes) {
       const pausa = d.mesesPausa ? inteiro(d.mesesPausa, 0, 600, 'meses de pausa') : 0;
       const total = await db.prepare('SELECT COUNT(*) AS n FROM alunos WHERE personal_id = ?').bind(p.id).first();
       if (total.n >= 500) throw new Falha('Este personal chegou ao limite de alunos. Fale com ele.');
-      const base = mesesIniciais(mesInicio, mesCadastro, pausa);
+      const base = mesesBase(mesInicio, mesCadastro, mesCadastro, pausa); // o mês do cadastro conta quando for pago
       const token = aleatorio(12);
       await db
         .prepare(

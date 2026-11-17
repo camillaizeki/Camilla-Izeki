@@ -858,14 +858,28 @@ function abaNovos() {
     },
   }, 'Copiar link');
   const convite = `Oi! Estou usando o Renova AI para acompanhar a jornada dos meus alunos. Faz seu cadastro em 1 minuto: ${linkConvite()}`;
+  const etapa = (n, texto) => el('div', { class: 'linha topo', style: 'gap: 10px' },
+    el('span', { class: 'etapa-num', 'aria-hidden': 'true' }, String(n)),
+    el('p', { class: 'cresce' }, texto)
+  );
   return [
+    el('div', { class: 'coluna', style: 'gap: 8px' },
+      el('h2', {}, 'Seus alunos se cadastram sozinhos'),
+      el('p', { class: 'suave' }, 'Envie o link abaixo. O aluno preenche nome e WhatsApp, sem criar conta nem instalar nada, e o cadastro cai direto aqui, na sua lista.')
+    ),
+    el('div', { class: 'cartao', style: 'gap: 10px' },
+      etapa(1, 'Você envia o link pelo WhatsApp ou coloca na bio do Instagram.'),
+      etapa(2, 'O aluno abre e preenche nome e WhatsApp.'),
+      etapa(3, 'Ele aparece logo abaixo. Você informa a mensalidade e o vencimento e confirma.')
+    ),
     el('div', { class: 'cartao escuro' },
-      el('p', { class: 'pequeno suave' }, 'Seu link de convite'),
+      el('p', { class: 'pequeno suave' }, 'Seu link de convite (é o mesmo para todos os alunos)'),
       el('p', { style: "font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 17px; word-break: break-all" }, linkConvite().replace(/^https?:\/\//, '')),
       copiarBotao,
       el('a', { class: 'botao claro menor', href: 'https://wa.me/?text=' + encodeURIComponent(convite), target: '_blank', rel: 'noopener' }, 'Enviar pelo WhatsApp')
     ),
-    !novos.length && el('p', { class: 'suave centro' }, 'Nenhum cadastro aguardando confirmação.'),
+    el('h3', {}, novos.length ? `Aguardando sua confirmação (${novos.length})` : 'Aguardando sua confirmação'),
+    !novos.length && el('p', { class: 'suave' }, 'Ninguém por enquanto. Quando um aluno se cadastrar pelo link, ele aparece aqui.'),
     novos.map((a) => {
       const detalhes = [a.mesInicio ? `Treina desde ${dataBR(a.dataInicio).slice(3)}` : 'Não informou quando começou', a.mesesPausa ? `${meses(a.mesesPausa)} de pausa` : null].filter(Boolean).join(', com ');
       const valor = el('input', { id: 'valor' + a.id, type: 'text', inputmode: 'decimal', required: true, placeholder: 'Ex.: 250,00', value: '' });
@@ -902,6 +916,7 @@ function abaNovos() {
         }, 'Não é meu aluno')
       );
     }),
+    el('p', { class: 'pequeno suave' }, 'Prefere cadastrar você mesmo? Use “Novo aluno” na aba Alunos.'),
   ];
 }
 
