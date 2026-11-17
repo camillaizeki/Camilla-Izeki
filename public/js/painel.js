@@ -857,7 +857,7 @@ function abaNovos() {
       copiarBotao.textContent = (await copiar(linkConvite())) ? 'Link copiado' : 'Copie o link acima';
     },
   }, 'Copiar link');
-  const convite = `Oi! Estou usando o Renova AI para acompanhar a jornada dos meus alunos. Faz seu cadastro em 1 minuto: ${linkConvite()}`;
+  const convite = `Oi! Estou usando o Renova AI para acompanhar a jornada dos meus alunos. Faça seu cadastro em 1 minuto: ${linkConvite()}`;
   const etapa = (n, texto) => el('div', { class: 'linha topo', style: 'gap: 10px' },
     el('span', { class: 'etapa-num', 'aria-hidden': 'true' }, String(n)),
     el('p', { class: 'cresce' }, texto)
