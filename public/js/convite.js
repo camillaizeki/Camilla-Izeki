@@ -25,6 +25,7 @@ async function enviar(evento) {
       whatsapp: f.whats.value,
       mesInicio: f.desde.value || null,
       mesesPausa: f.desde.value && temPausa ? mesesParado : 0,
+      diaVenc: f.dia.value ? Number(f.dia.value) : null,
       aceite: true,
     });
     location.href = '/a/' + token + '?novo=1';
@@ -37,8 +38,8 @@ async function enviar(evento) {
 
 function desenhar(anterior) {
   const valores = anterior
-    ? { nome: anterior.nome.value, whats: anterior.whats.value, desde: anterior.desde.value }
-    : { nome: '', whats: '', desde: '' };
+    ? { nome: anterior.nome.value, whats: anterior.whats.value, desde: anterior.desde.value, dia: anterior.dia.value }
+    : { nome: '', whats: '', desde: '', dia: '' };
 
   // Pergunta de pausa: só aparece depois que a pessoa diz desde quando treina,
   // porque serve apenas para descontar da contagem os meses sem treino.
@@ -91,6 +92,14 @@ function desenhar(anterior) {
         onchange: (e) => { pausaCampo.hidden = !e.target.value; },
       }, 'input', 'Mês e ano em que começou. Conta para os seus selos.'),
       pausaCampo,
+      el('div', { class: 'campo' },
+        el('label', { for: 'dia' }, 'Dia do vencimento (opcional)'),
+        el('select', { id: 'dia', name: 'dia' },
+          el('option', { value: '', selected: !valores.dia }, 'Deixar para ' + personal.nome + ' definir'),
+          Array.from({ length: 31 }, (_, i) => el('option', { value: String(i + 1), selected: valores.dia === String(i + 1) }, 'Todo dia ' + (i + 1)))
+        ),
+        el('p', { class: 'pequeno suave' }, 'O dia do mês em que você costuma pagar. ' + personal.nome + ' pode ajustar depois.')
+      ),
       erro && el('p', { class: 'erro', role: 'alert' }, erro),
       el('div', { class: 'coluna fim' },
         el('button', { class: 'botao', type: 'submit' }, 'Começar minha jornada'),

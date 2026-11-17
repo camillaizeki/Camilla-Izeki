@@ -1,6 +1,7 @@
 // API do Renova.AI: atende tudo que começa com /api/.
 import { prepararBanco, FRASES_PADRAO } from '../lib/banco.js';
 import { gerarPix, normalizarChave } from '../lib/pix.js';
+import { situacaoPacote, pacotesComoRecebimentos, mesesComAula, precoAula } from '../lib/pacotes.js';
 import { calcular, fases, hojeBR, chaveMes, somaMes, mesesBase, marcoDe, dataISO } from '../lib/jornada.js';
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
@@ -167,6 +168,12 @@ async function pagamentosDe(db, alunoId) {
   return r.results || [];
 }
 
+async function pacotesEAulasDe(db, alunoId) {
+  const pacotes = (await db.prepare('SELECT id, aulas, valor, recebido_em FROM pacotes WHERE aluno_id = ?').bind(alunoId).all()).results || [];
+  const aulas = (await db.prepare('SELECT id, data FROM aulas WHERE aluno_id = ?').bind(alunoId).all()).results || [];
+  return { pacotes, aulas };
+}
+
 async function pausasDe(db, alunoId) {
   const r = await db.prepare('SELECT id, aluno_id, inicio, fim, cobrar FROM pausas WHERE aluno_id = ? ORDER BY inicio').bind(alunoId).all();
   return r.results || [];
@@ -223,8 +230,11 @@ function pagoAte(pagamentos, hoje) {
   return pagos.has(atual) && mes > atual ? rotuloMes(mes) : null;
 }
 
-function alunoParaPainel(a, pagamentos, pausas, hoje) {
-  const c = calcular(a, pagamentos, hoje, pausas);
+function alunoParaPainel(a, pagamentos, pausas, hoje, pacotes = [], aulas = []) {
+  const ehPacote = a.modo === 'pacote';
+  // Aluno de pacote: a trilha conta os meses em que teve aula.
+  const c = calcular(a, ehPacote ? mesesComAula(aulas, hoje) : pagamentos, hoje, pausas);
+  const pac = ehPacote ? situacaoPacote(a, pacotes, aulas, pausas, hoje) : null;
   const abertas = pagamentos
     .filter((m) => m.status === 'aberto' || m.status === 'informado')
     .sort((x, y) => (x.mes < y.mes ? -1 : 1))
@@ -250,12 +260,46 @@ function alunoParaPainel(a, pagamentos, pausas, hoje) {
     situacao: c.situacao,
     filtro: filtroDoAluno(a, pagamentos, c.emPausa, hoje),
     abertas,
+    modo: ehPacote ? 'pacote' : 'mensal',
+    ...(ehPacote && {
+      situacao: pac.situacao,
+      // Mensalidade antiga ainda em aberto (de antes de mudar para pacote) pesa mais que o pacote.
+      filtro: abertas.some((m) => m.situacao === 'atrasado') ? 'atrasado' : abertas.length && pac.filtro !== 'atrasado' ? 'pendente' : pac.filtro,
+      saldo: pac.saldo,
+      pacoteAulas: a.pacote_aulas,
+      precoAula: precoAula(a),
+      pacoteInformado: !!a.pacote_informado_em,
+      aVencerPacote: pac.aVencer,
+      emAtrasoPacote: pac.emAtraso,
+    }),
     totalAberto: abertas.reduce((t, m) => t + (m.valor || 0), 0),
     pausas: pausas.map((p) => ({ id: p.id, inicio: p.inicio, fim: p.fim, cobrar: !!p.cobrar })),
     pagoAte: pagoAte(pagamentos, hoje),
     proximoMarco: marcoDe(c.meses + 1),
     lembradoHoje: a.lembrado_em === dataHoje(),
   };
+}
+
+// Forma de cobrança enviada pelo painel: mensalidade (valor + dia) ou pacote de aulas (valor do pacote + aulas).
+function lerCobranca(d, atual = {}) {
+  const modo = d.modo === 'pacote' ? 'pacote' : d.modo === 'mensal' ? 'mensal' : atual.modo || 'mensal';
+  if (modo === 'pacote') {
+    return {
+      modo,
+      valor: inteiro(d.valor, 100, 10000000, 'valor do pacote'),
+      pacoteAulas: inteiro(d.pacoteAulas, 1, 200, 'aulas no pacote'),
+      dia: d.diaVenc ? inteiro(d.diaVenc, 1, 31, 'dia de vencimento') : atual.dia_venc || null,
+    };
+  }
+  return { modo, valor: inteiro(d.valor, 100, 10000000, 'mensalidade'), pacoteAulas: atual.pacote_aulas || null, dia: inteiro(d.diaVenc, 1, 31, 'dia de vencimento') };
+}
+
+// Registra um pacote pago. Pagar o pacote apaga o aviso "já paguei" do aluno.
+function comandosPacote(db, alunoId, aulas, valor, data) {
+  return [
+    db.prepare('INSERT INTO pacotes (aluno_id, aulas, valor, recebido_em, criado_em) VALUES (?, ?, ?, ?, ?)').bind(alunoId, aulas, valor, data, new Date().toISOString()),
+    db.prepare('UPDATE alunos SET pacote_informado_em = NULL WHERE id = ?').bind(alunoId),
+  ];
 }
 
 async function alunoDoPersonal(db, personal, id) {
@@ -423,8 +467,22 @@ async function rotear(request, env, partes) {
       }
       return mapa;
     };
+    const pacs = (
+      await db
+        .prepare('SELECT k.id, k.aluno_id, k.aulas, k.valor, k.recebido_em FROM pacotes k JOIN alunos al ON al.id = k.aluno_id WHERE al.personal_id = ?')
+        .bind(p.id)
+        .all()
+    ).results || [];
+    const auls = (
+      await db
+        .prepare('SELECT u.id, u.aluno_id, u.data FROM aulas u JOIN alunos al ON al.id = u.aluno_id WHERE al.personal_id = ?')
+        .bind(p.id)
+        .all()
+    ).results || [];
     const pagsPorAluno = agrupar(pags);
     const pausPorAluno = agrupar(paus);
+    const pacsPorAluno = agrupar(pacs);
+    const aulsPorAluno = agrupar(auls);
     const comandos = [];
     const todos = [];
     const saida = alunos.map((al) => {
@@ -432,22 +490,32 @@ async function rotear(request, env, partes) {
       const r = sincronizar(db, al, pagsPorAluno.get(al.id) || [], pausas, hoje);
       comandos.push(...r.comandos);
       todos.push(...r.pagamentos);
-      return alunoParaPainel(al, r.pagamentos, pausas, hoje);
+      return alunoParaPainel(al, r.pagamentos, pausas, hoje, pacsPorAluno.get(al.id) || [], aulsPorAluno.get(al.id) || []);
     });
     if (comandos.length) await db.batch(comandos);
+    // Pacotes pagos entram no faturamento pela data do recebimento; os que acabaram ou estão devendo aulas, nos totais em aberto.
+    const recebimentos = [...todos, ...pacotesComoRecebimentos(pacs)];
+    const somaPacote = (campo) => saida.reduce((t, x) => t + (x[campo] || 0), 0);
+    const resumo = resumoDoMes(recebimentos, hoje);
+    resumo.pendente += somaPacote('aVencerPacote');
+    resumo.atrasado += somaPacote('emAtrasoPacote');
+    const posicao = posicaoAtual(todos, hoje);
+    posicao.aVencer += somaPacote('aVencerPacote');
+    posicao.emAtraso += somaPacote('emAtrasoPacote');
     const frases = (await db.prepare('SELECT id, texto, ativa, origem FROM frases WHERE personal_id = ? ORDER BY id').bind(p.id).all()).results || [];
     return json({
       personal: personalPublico(p),
       hoje: dataISO(hoje),
       mesAtual: rotuloMes(chaveMes(hoje.ano, hoje.mes)),
-      resumo: resumoDoMes(todos, hoje),
+      resumo,
       financeiro: {
-        meses: serieMensal(todos, hoje, 12, mesesFuturos(todos, hoje)).map((m) =>
+        meses: serieMensal(recebimentos, hoje, 12, mesesFuturos(todos, hoje)).map((m) =>
           // Mês que ainda não chegou: o previsto vem do cadastro dos alunos.
           m.futuro ? { ...m, ...projecaoDoMes(alunos, pagsPorAluno, pausPorAluno, m.mes) } : m
         ),
         atual: 11, // posição do mês atual na lista acima
-        ...posicaoAtual(todos, hoje),
+        ...posicao,
+        temPacote: saida.some((x) => x.modo === 'pacote'),
         alunos: {
           ativos: saida.filter((x) => x.status === 'ativo' && !x.emPausa).length,
           pausados: saida.filter((x) => x.status === 'ativo' && x.emPausa).length,
@@ -486,25 +554,26 @@ async function rotear(request, env, partes) {
     const nome = texto(d.nome, 2, 60, 'nome');
     const whats = normalizarWhats(d.whatsapp);
     await semDuplicado(db, p.id, whats);
-    const valor = inteiro(d.valor, 100, 10000000, 'mensalidade');
-    const dia = inteiro(d.diaVenc, 1, 31, 'dia de vencimento');
+    const { modo, valor, pacoteAulas, dia } = lerCobranca(d);
     const hoje = hojeBR();
     const mesCadastro = chaveMes(hoje.ano, hoje.mes);
     const dataInicio = d.dataInicio ? dataValida(d.dataInicio, 'data de início') : null;
     if (dataInicio && dataInicio > dataISO(hoje)) throw new Falha('A data de início não pode ser no futuro.');
     const mesInicio = dataInicio ? dataInicio.slice(0, 7) : null;
-    const mesControle = d.primeiroMes === 'proximo' ? somaMes(mesCadastro, 1) : mesCadastro;
+    const mesControle = d.primeiroMes === 'proximo' && modo === 'mensal' ? somaMes(mesCadastro, 1) : mesCadastro;
     const total = await db.prepare('SELECT COUNT(*) AS n FROM alunos WHERE personal_id = ?').bind(p.id).first();
     if (total.n >= 500) throw new Falha('Você chegou ao limite de 500 alunos.');
     const base = mesesBase(mesInicio, mesCadastro, mesControle, 0);
     const r = await db
       .prepare(
-        'INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, data_inicio, meses_pausa, base_meses, seq_base, mes_cadastro, mes_controle, status, valor, dia_venc, criado_em) ' +
-          "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'ativo', ?, ?, ?)"
+        'INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, data_inicio, meses_pausa, base_meses, seq_base, mes_cadastro, mes_controle, status, valor, dia_venc, modo, pacote_aulas, criado_em) ' +
+          "VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 'ativo', ?, ?, ?, ?, ?)"
       )
-      .bind(p.id, aleatorio(12), nome, whats, mesInicio, dataInicio, base, base, mesCadastro, mesControle, valor, dia, new Date().toISOString())
+      .bind(p.id, aleatorio(12), nome, whats, mesInicio, dataInicio, base, base, mesCadastro, mesControle, valor, dia, modo, pacoteAulas, new Date().toISOString())
       .run();
-    return json({ ok: true, id: r.meta.last_row_id });
+    const id = r.meta.last_row_id;
+    if (modo === 'pacote' && d.pacotePago) await db.batch(comandosPacote(db, id, pacoteAulas, valor, dataISO(hoje)));
+    return json({ ok: true, id });
   }
 
   if (a === 'alunos' && b) {
@@ -520,8 +589,7 @@ async function rotear(request, env, partes) {
       const nome = d.nome == null ? aluno.nome : texto(d.nome, 2, 60, 'nome');
       const whats = d.whatsapp == null ? aluno.whatsapp : normalizarWhats(d.whatsapp);
       if (whats !== aluno.whatsapp) await semDuplicado(db, p.id, whats, aluno.id);
-      const valor = inteiro(d.valor, 100, 10000000, 'mensalidade');
-      const dia = inteiro(d.diaVenc, 1, 31, 'dia de vencimento');
+      const { modo, valor, pacoteAulas, dia } = lerCobranca(d, aluno);
       const status = d.status === 'inativo' ? 'inativo' : 'ativo';
       let dataInicio = aluno.data_inicio;
       if (d.dataInicio !== undefined) dataInicio = d.dataInicio ? dataValida(d.dataInicio, 'data de início') : null;
@@ -533,7 +601,7 @@ async function rotear(request, env, partes) {
       let seqBase = aluno.seq_base;
       let gerarDesde = aluno.gerar_desde;
       if (aluno.status === 'novo' || !mesControle) {
-        mesControle = d.primeiroMes === 'proximo' ? somaMes(mesAtual, 1) : mesAtual;
+        mesControle = d.primeiroMes === 'proximo' && modo === 'mensal' ? somaMes(mesAtual, 1) : mesAtual;
         base = mesesBase(mesInicio, aluno.mes_cadastro, mesControle, aluno.meses_pausa);
         seqBase = aluno.meses_pausa > 0 ? 0 : base;
       }
@@ -549,17 +617,26 @@ async function rotear(request, env, partes) {
         }
       }
       if (aluno.status === 'inativo' && status === 'ativo') gerarDesde = mesAtual; // não cobra o período inativo
+      // Voltando de pacote para mensalidade: as mensalidades recomeçam no mês atual, sem cobrar o período de pacote.
+      if (aluno.modo === 'pacote' && modo === 'mensal' && aluno.status !== 'novo') gerarDesde = mesAtual;
 
       await db.batch([
         db
           .prepare(
-            'UPDATE alunos SET nome = ?, whatsapp = ?, data_inicio = ?, mes_inicio = ?, valor = ?, dia_venc = ?, base_meses = ?, seq_base = ?, mes_controle = ?, gerar_desde = ?, status = ? WHERE id = ?'
+            'UPDATE alunos SET nome = ?, whatsapp = ?, data_inicio = ?, mes_inicio = ?, valor = ?, dia_venc = ?, base_meses = ?, seq_base = ?, mes_controle = ?, gerar_desde = ?, status = ?, modo = ?, pacote_aulas = ? WHERE id = ?'
           )
-          .bind(nome, whats, dataInicio, mesInicio, valor, dia, base, seqBase, mesControle, gerarDesde, status, aluno.id),
+          .bind(nome, whats, dataInicio, mesInicio, valor, dia, base, seqBase, mesControle, gerarDesde, status, modo, pacoteAulas, aluno.id),
         // Mensalidades ainda dentro do prazo acompanham o novo valor e o novo dia.
-        db
-          .prepare("UPDATE pagamentos SET valor_previsto = ?, vencimento = mes || '-' || ? WHERE aluno_id = ? AND status = 'aberto' AND vencimento >= ?")
-          .bind(valor, String(dia).padStart(2, '0'), aluno.id, dataISO(hoje)),
+        ...(modo === 'mensal'
+          ? [db
+              .prepare("UPDATE pagamentos SET valor_previsto = ?, vencimento = mes || '-' || ? WHERE aluno_id = ? AND status = 'aberto' AND vencimento >= ?")
+              .bind(valor, String(dia).padStart(2, '0'), aluno.id, dataISO(hoje))]
+          : []),
+        // Passando para pacote: a mensalidade deste mês ainda em aberto deixa de ser cobrada.
+        ...(modo === 'pacote' && aluno.modo !== 'pacote'
+          ? [db.prepare("UPDATE pagamentos SET status = 'dispensado' WHERE aluno_id = ? AND status = 'aberto' AND mes >= ?").bind(aluno.id, mesAtual)]
+          : []),
+        ...(modo === 'pacote' && d.pacotePago ? comandosPacote(db, aluno.id, pacoteAulas, valor, dataISO(hoje)) : []),
       ]);
       return json({ ok: true });
     }
@@ -568,6 +645,8 @@ async function rotear(request, env, partes) {
       await db.batch([
         db.prepare('DELETE FROM pagamentos WHERE aluno_id = ?').bind(aluno.id),
         db.prepare('DELETE FROM pausas WHERE aluno_id = ?').bind(aluno.id),
+        db.prepare('DELETE FROM pacotes WHERE aluno_id = ?').bind(aluno.id),
+        db.prepare('DELETE FROM aulas WHERE aluno_id = ?').bind(aluno.id),
         db.prepare('DELETE FROM alunos WHERE id = ?').bind(aluno.id),
       ]);
       return json({ ok: true });
@@ -576,9 +655,46 @@ async function rotear(request, env, partes) {
     // Histórico de mensalidades do aluno.
     if (c === 'mensalidades' && !d4 && metodo === 'GET') {
       const { pagamentos } = await estadoDoAluno(db, aluno, hoje);
+      const pacotes = (await db.prepare('SELECT id, aulas, valor, recebido_em FROM pacotes WHERE aluno_id = ? ORDER BY recebido_em DESC, id DESC').bind(aluno.id).all()).results || [];
+      const aulas = (await db.prepare('SELECT id, data FROM aulas WHERE aluno_id = ? ORDER BY data DESC, id DESC LIMIT 200').bind(aluno.id).all()).results || [];
       return json({
         mensalidades: pagamentos.sort((x, y) => (x.mes < y.mes ? 1 : -1)).map((m) => mensalidadeParaPainel(m, hoje)),
+        pacotes: pacotes.map((k) => ({ id: k.id, aulas: k.aulas, valor: k.valor, recebidoEm: k.recebido_em })),
+        aulas: aulas.map((u) => ({ id: u.id, data: u.data })),
       });
+    }
+
+    // Aulas dadas (aluno de pacote): registrar e apagar.
+    if (c === 'aulas') {
+      if (metodo === 'POST' && !d4) {
+        const d = await corpo(request);
+        const data = d.data ? dataValida(d.data, 'data da aula') : dataISO(hoje);
+        if (data > dataISO(hoje)) throw new Falha('A data da aula não pode ser no futuro.');
+        const r = await db.prepare('INSERT INTO aulas (aluno_id, data, criado_em) VALUES (?, ?, ?)').bind(aluno.id, data, new Date().toISOString()).run();
+        return json({ ok: true, id: r.meta.last_row_id });
+      }
+      if (metodo === 'DELETE' && d4) {
+        await db.prepare('DELETE FROM aulas WHERE id = ? AND aluno_id = ?').bind(Number(d4), aluno.id).run();
+        return json({ ok: true });
+      }
+    }
+
+    // Pacotes pagos: registrar, corrigir e apagar.
+    if (c === 'pacotes') {
+      if ((metodo === 'POST' && !d4) || (metodo === 'PUT' && d4)) {
+        const d = await corpo(request);
+        const aulas = inteiro(d.aulas, 1, 200, 'aulas no pacote');
+        const valor = inteiro(d.valor, 1, 10000000, 'valor recebido');
+        const data = d.data ? dataValida(d.data, 'data do recebimento') : dataISO(hoje);
+        if (data > dataISO(hoje)) throw new Falha('A data do recebimento não pode ser no futuro.');
+        if (metodo === 'POST') await db.batch(comandosPacote(db, aluno.id, aulas, valor, data));
+        else await db.prepare('UPDATE pacotes SET aulas = ?, valor = ?, recebido_em = ? WHERE id = ? AND aluno_id = ?').bind(aulas, valor, data, Number(d4), aluno.id).run();
+        return json({ ok: true });
+      }
+      if (metodo === 'DELETE' && d4) {
+        await db.prepare('DELETE FROM pacotes WHERE id = ? AND aluno_id = ?').bind(Number(d4), aluno.id).run();
+        return json({ ok: true });
+      }
     }
 
     // Marcar como paga, corrigir, reabrir ou dispensar uma mensalidade.
@@ -700,14 +816,19 @@ async function rotear(request, env, partes) {
     const d = await corpo(request);
     const aluno = await alunoDoPersonal(db, p, d.alunoId);
     const estado = await estadoDoAluno(db, aluno);
-    const c2 = calcular(aluno, estado.pagamentos, estado.hoje, estado.pausas);
+    const ehPacote = aluno.modo === 'pacote';
+    const pa = ehPacote ? await pacotesEAulasDe(db, aluno.id) : null;
+    const c2 = calcular(aluno, ehPacote ? mesesComAula(pa.aulas, estado.hoje) : estado.pagamentos, estado.hoje, estado.pausas);
     const marco = marcoDe(c2.meses + 1);
+    const saldo = ehPacote ? situacaoPacote(aluno, pa.pacotes, pa.aulas, estado.pausas, estado.hoje).saldo : 0;
     const fatos = [
       `Aluno: ${primeiroNome(aluno.nome)}.`,
       `Personal: ${p.nome.trim()}.`,
       `Meses de treino até agora: ${c2.meses}.`,
-      `Próximo mês a desbloquear: ${c2.nomeAlvo}.`,
-      marco ? `Ao desbloquear, o aluno ganha o selo ${marco}.` : '',
+      ehPacote
+        ? `O aluno treina por pacote de ${aluno.pacote_aulas} aulas. ${saldo > 0 ? `Restam ${saldo} aulas no pacote.` : 'As aulas do pacote acabaram.'} O convite é para renovar o pacote.`
+        : `Próximo mês a desbloquear: ${c2.nomeAlvo}.`,
+      !ehPacote && marco ? `Ao desbloquear, o aluno ganha o selo ${marco}.` : '',
       c2.emPausa || aluno.status === 'inativo' ? 'O aluno está com os treinos pausados; o convite é para voltar, sem pressão.' : '',
     ]
       .filter(Boolean)
@@ -716,7 +837,7 @@ async function rotear(request, env, partes) {
       env,
       'Você escreve mensagens curtas de WhatsApp em português do Brasil, em nome de um app de personal trainer. ' +
         'Responda só com a mensagem, sem aspas, sem link e sem explicações.',
-      `Escreva uma mensagem de até 2 frases, em tom ${TONS[p.tom] || TONS.zoeiro}, celebrando a jornada do aluno e convidando a ver o cartão dele e desbloquear o próximo mês. ` +
+      `Escreva uma mensagem de até 2 frases, em tom ${TONS[p.tom] || TONS.zoeiro}, celebrando a jornada do aluno e convidando a ver o cartão dele e ${ehPacote ? 'renovar o pacote de aulas' : 'desbloquear o próximo mês'}. ` +
         'Nunca use as palavras cobrança, dívida, atraso, débito ou vencido. No máximo 1 emoji. Use só estes fatos: ' +
         fatos
     );
@@ -747,6 +868,7 @@ async function rotear(request, env, partes) {
         mesInicio = d.mesInicio;
       }
       const pausa = d.mesesPausa ? inteiro(d.mesesPausa, 0, 600, 'meses de pausa') : 0;
+      const diaAluno = d.diaVenc ? inteiro(d.diaVenc, 1, 31, 'dia do vencimento') : null; // sugestão do aluno; o personal confirma
       const total = await db.prepare('SELECT COUNT(*) AS n FROM alunos WHERE personal_id = ?').bind(p.id).first();
       if (total.n >= 500) throw new Falha('Este personal chegou ao limite de alunos. Fale com ele.');
       const base = mesesBase(mesInicio, mesCadastro, mesCadastro, pausa); // o mês do cadastro conta quando for pago
@@ -756,7 +878,7 @@ async function rotear(request, env, partes) {
           'INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, data_inicio, meses_pausa, base_meses, seq_base, mes_cadastro, status, valor, dia_venc, criado_em) ' +
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?, ?, ?)"
         )
-        .bind(p.id, token, nome, whats, mesInicio, mesInicio ? mesInicio + '-01' : null, pausa, base, pausa > 0 ? 0 : base, mesCadastro, null, null, new Date().toISOString())
+        .bind(p.id, token, nome, whats, mesInicio, mesInicio ? mesInicio + '-01' : null, pausa, base, pausa > 0 ? 0 : base, mesCadastro, null, diaAluno, new Date().toISOString())
         .run();
       return json({ token });
     }
@@ -768,9 +890,13 @@ async function rotear(request, env, partes) {
     if (!aluno) throw new Falha('Link não encontrado. Peça um novo ao seu personal.', 404);
     const p = await db.prepare('SELECT * FROM personais WHERE id = ?').bind(aluno.personal_id).first();
     const { pagamentos, pausas, hoje } = await estadoDoAluno(db, aluno);
-    const calc = calcular(aluno, pagamentos, hoje, pausas);
+    const ehPacote = aluno.modo === 'pacote';
+    const pa = ehPacote ? await pacotesEAulasDe(db, aluno.id) : null;
+    const calc = calcular(aluno, ehPacote ? mesesComAula(pa.aulas, hoje) : pagamentos, hoje, pausas);
+    const sitPacote = ehPacote ? situacaoPacote(aluno, pa.pacotes, pa.aulas, pausas, hoje) : null;
+    if (ehPacote) calc.situacao = sitPacote.situacao === 'informado' ? 'informado' : sitPacote.situacao; // trilha não tem mês pendente
     const daVez = pagamentos.find((m) => m.mes === calc.alvo);
-    const valor = daVez?.valor_previsto ?? aluno.valor;
+    const valor = ehPacote ? aluno.valor : daVez?.valor_previsto ?? aluno.valor;
 
     if (!c && metodo === 'GET') {
       const nomeP = p.nome.trim();
@@ -787,13 +913,15 @@ async function rotear(request, env, partes) {
         nomeAlvo: calc.nomeAlvo,
         fases: fases(calc.meses, calc.situacao, calc.nomeAlvo),
         valor,
+        modo: ehPacote ? 'pacote' : 'mensal',
+        ...(ehPacote && { saldo: sitPacote.saldo, pacoteAulas: aluno.pacote_aulas, pacoteInformado: !!aluno.pacote_informado_em }),
         pix: podePagar
           ? gerarPix({
               chave: p.pix_chave,
               nome: p.pix_nome || p.nome,
               cidade: p.pix_cidade,
               centavos: valor,
-              txid: 'RENOVA' + aluno.id + 'M' + calc.alvo.replace('-', ''),
+              txid: 'RENOVA' + aluno.id + (ehPacote ? 'P' + String(pa.pacotes.length + 1) : 'M' + calc.alvo.replace('-', '')),
             })
           : null,
         frases: frases.map((f) => f.texto.replaceAll('{personal}', nomeP)),
@@ -804,6 +932,10 @@ async function rotear(request, env, partes) {
     if (c === 'paguei' && metodo === 'POST') {
       if (aluno.status === 'novo') throw new Falha('Seu cadastro ainda está aguardando a confirmação do personal.');
       const agora = new Date().toISOString();
+      if (ehPacote) {
+        await db.prepare('UPDATE alunos SET pacote_informado_em = ? WHERE id = ?').bind(agora, aluno.id).run();
+        return json({ ok: true });
+      }
       await db
         .prepare(
           "INSERT INTO pagamentos (aluno_id, mes, status, valor_previsto, vencimento, informado_em) VALUES (?, ?, 'informado', ?, ?, ?) " +

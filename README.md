@@ -12,6 +12,8 @@ O personal acompanha tudo em um painel e envia lembretes pelo próprio WhatsApp.
 - **Recebimento:** o personal marca como pago em um toque, e pode ajustar a data e o valor. O faturamento usa a data real do recebimento, e cada mensalidade tem um único registro.
 - **Dashboard:** a tela Início mostra o recebido no mês, o previsto, o que falta vencer, o que está em atraso e a contagem de alunos ativos, pausados e inadimplentes, com navegação pelos últimos 12 meses.
 - **Pagamento adiantado:** dá para lançar um ou vários meses futuros de uma vez. O valor entra no faturamento do dia em que foi recebido, o mês futuro já aparece como pago, e a trilha do aluno só avança quando o mês chega.
+- **Pacote de aulas:** em vez de mensalidade, o aluno pode pagar por pacote (ex.: 10 aulas). O personal registra cada aula em um toque, o app mostra o saldo, avisa quando o pacote está acabando e conta o valor do pacote no faturamento do dia em que foi pago. Aulas dadas além do pacote ficam devendo, pelo valor de cada aula.
+- **Vencimento no autocadastro:** o aluno pode escolher o dia de pagamento no convite; o personal confirma ou ajusta.
 - **Pausas:** períodos com início e fim. Em cada pausa o personal escolhe se a mensalidade continua valendo.
 - **Lembretes:** o painel abre o WhatsApp do personal com a mensagem pronta para cada aluno. O tom com o aluno é sempre leve.
 - **Página do aluno:** trilha de meses, selos, Pix copia e cola e arte para compartilhar. O "Já paguei" do aluno é só um aviso; quem confirma é o personal.

@@ -238,7 +238,7 @@ function abaInicio() {
           comparacao && el('p', { class: 'pequeno suave' }, comparacao)
         ),
     el('div', { class: 'cartao' },
-      el('div', { class: 'linha entre' }, el('h3', {}, `Mensalidades de ${nomeMes}`), el('strong', {}, m.total ? `${pct}%` : '')),
+      el('div', { class: 'linha entre' }, el('h3', {}, `${f.temPacote ? 'Mensalidades e pacotes' : 'Mensalidades'} de ${nomeMes}`), el('strong', {}, m.total ? `${pct}%` : '')),
       m.total
         ? [
             el('div', { class: 'barra', role: 'img', 'aria-label': `${pct}% do previsto já recebido` }, el('div', { style: `width: ${pct}%` })),
@@ -276,7 +276,16 @@ const FILTROS = [['todos', 'Todos'], ['pago', 'Pagos'], ['pendente', 'Pendentes'
 const ORDEM = ['atrasado', 'pendente', 'pago', 'em_dia', 'pausado', 'inativo'];
 const CHIP_MENSALIDADE = { pago: ['lima', 'Pago'], pendente: ['neutro', 'Pendente'], atrasado: ['forte', 'Atrasado'], pausado: ['vazio', 'Em pausa'], dispensado: ['vazio', 'Dispensada'], anterior: ['vazio', 'Anterior'] };
 
+const aulasTxt = (n) => (n === 1 ? '1 aula' : `${n} aulas`);
+
 function chipDoAluno(a) {
+  if (a.modo === 'pacote' && !['inativo', 'novo'].includes(a.filtro) && !a.abertas.length) {
+    if (a.pacoteInformado) return ['neutro', 'Disse que pagou'];
+    if (a.saldo < 0) return ['forte', `Deve ${aulasTxt(-a.saldo)}`];
+    if (a.saldo === 0) return ['neutro', 'Pacote acabou'];
+    if (a.filtro === 'pausado') return ['vazio', 'Pausado'];
+    return [a.saldo <= 2 ? 'neutro' : 'lima', a.saldo === 1 ? 'Resta 1 aula' : `Restam ${a.saldo} aulas`];
+  }
   if (a.filtro === 'inativo') return ['vazio', 'Inativo'];
   if (a.filtro === 'pausado') return ['vazio', 'Pausado'];
   if (a.filtro === 'pago') return ['lima', 'Pago'];
@@ -304,6 +313,10 @@ function textoLembrete(a) {
   }
   const marco = a.proximoMarco ? ` e ganhe o selo ${a.proximoMarco}` : '';
   const jornada = a.meses > 0 ? `Você já tem ${meses(a.meses)} de treino com ${P()}.` : `Sua jornada com ${P()} está começando.`;
+  if (a.modo === 'pacote') {
+    const pacote = a.saldo > 0 ? `Restam ${aulasTxt(a.saldo)} no seu pacote.` : 'As aulas do seu pacote acabaram.';
+    return `Oi, ${nome}! ${jornada} ${pacote} Veja seu cartão e renove o pacote: ${linkAluno(a)}${assinatura}`;
+  }
   return `Oi, ${nome}! ${jornada} Veja seu cartão e desbloqueie ${a.nomeAlvo}${marco}: ${linkAluno(a)}${assinatura}`;
 }
 
@@ -322,6 +335,25 @@ function marcarPago(a, m) {
   });
 }
 
+// Um toque registra uma aula dada hoje. Dá para desfazer logo em seguida.
+function registrarAula(a) {
+  return agirNaFolha(async () => {
+    const { id } = await api(`alunos/${a.id}/aulas`, 'POST', {});
+    const resta = a.saldo - 1;
+    desfazer = {
+      id: a.id,
+      aula: id,
+      texto: `Aula de ${primeiro(a.nome)} registrada. ${resta > 0 ? (resta === 1 ? 'Resta 1 aula.' : `Restam ${resta} aulas.`) : resta === 0 ? 'O pacote acabou.' : `Deve ${aulasTxt(-resta)}.`}`,
+    };
+  });
+}
+
+function abrirPacote(a, k = null) {
+  if (folha?.id === a.id) return irPara('pacote', { k });
+  folha = { tipo: 'pacote', id: a.id, mensalidades: null, k };
+  desenhar();
+}
+
 function cartaoAluno(a) {
   const [classe, rotulo] = chipDoAluno(a);
   const m = a.abertas[0];
@@ -329,7 +361,9 @@ function cartaoAluno(a) {
     el('div', { class: 'linha entre topo' },
       el('div', {},
         el('h3', {}, a.nome),
-        el('p', { class: 'pequeno suave' }, a.valor ? `${reais(a.valor)} · vence dia ${a.diaVenc}` : 'Sem mensalidade definida')
+        el('p', { class: 'pequeno suave' }, a.modo === 'pacote'
+          ? `Pacote de ${aulasTxt(a.pacoteAulas)} · ${reais(a.valor)}`
+          : a.valor ? `${reais(a.valor)} · vence dia ${a.diaVenc}` : 'Sem mensalidade definida')
       ),
       el('span', { class: 'chip ' + classe }, rotulo)
     ),
@@ -337,6 +371,11 @@ function cartaoAluno(a) {
     a.pagoAte && el('p', { class: 'pequeno' }, `Pago adiantado até ${a.pagoAte}.`),
     m?.informado && el('p', { class: 'pequeno suave' }, 'O aluno avisou que pagou. Confira antes de marcar.'),
     m && el('button', { class: 'botao menor', onclick: () => marcarPago(a, m) }, `Marcar ${m.rotulo.split(' ')[0]} como pago`),
+    a.modo === 'pacote' && a.pacoteInformado && el('p', { class: 'pequeno suave' }, 'O aluno avisou que pagou um pacote novo. Confira antes de registrar.'),
+    a.modo === 'pacote' && a.status === 'ativo' && el('div', { class: 'dupla' },
+      el('button', { class: 'botao menor', onclick: () => registrarAula(a) }, 'Registrar aula'),
+      el('button', { class: a.saldo <= 0 || a.pacoteInformado ? 'botao lima menor' : 'botao claro menor', onclick: () => abrirPacote(a) }, 'Pacote pago')
+    ),
     el('div', { class: 'dupla' },
       el('button', { class: 'botao claro menor', onclick: () => abrirAluno(a) }, icone('relogio', { tamanho: 18 }), 'Histórico'),
       a.emPausa
@@ -374,13 +413,15 @@ function abaAlunos() {
     !dados.personal.pixChave && el('p', { class: 'aviso' }, 'Cadastre sua chave Pix na aba Conta para os alunos conseguirem pagar pelo link.'),
     desfazer && el('div', { class: 'aviso coluna' },
       el('span', {}, desfazer.texto),
-      el('a', { class: 'botao menor', href: desfazer.avisar, target: '_blank', rel: 'noopener' }, 'Avisar o aluno e enviar a conquista'),
+      desfazer.avisar && el('a', { class: 'botao menor', href: desfazer.avisar, target: '_blank', rel: 'noopener' }, 'Avisar o aluno e enviar a conquista'),
       el('button', {
         class: 'link',
         onclick: () => {
           const ultimo = desfazer;
           desfazer = null;
-          agir(() => api(`alunos/${ultimo.id}/mensalidades/${ultimo.mes}`, 'POST', { acao: 'reabrir' }));
+          agir(() => (ultimo.aula
+            ? api(`alunos/${ultimo.id}/aulas/${ultimo.aula}`, 'DELETE')
+            : api(`alunos/${ultimo.id}/mensalidades/${ultimo.mes}`, 'POST', { acao: 'reabrir' })));
         },
       }, 'Desfazer')
     ),
@@ -579,7 +620,12 @@ async function agirNaFolha(funcao) {
     if (folha && folha.id) {
       const a = dados.alunos.find((x) => x.id === folha.id);
       if (!a) folha = null;
-      else folha.mensalidades = (await api(`alunos/${a.id}/mensalidades`)).mensalidades;
+      else {
+        const h = await api(`alunos/${a.id}/mensalidades`);
+        folha.mensalidades = h.mensalidades;
+        folha.pacotes = h.pacotes;
+        folha.aulas = h.aulas;
+      }
     }
   } catch (e) {
     erro = e.message;
@@ -673,11 +719,14 @@ function folhaAluno() {
   const [classe, rotulo] = chipDoAluno(a);
   const trilha = `Oi, ${primeiro(a.nome)}! Este é o seu cartão no Renova AI, com sua trilha de treinos com ${P()}, seus selos e a imagem da sua conquista para compartilhar: ${linkAluno(a)}`;
 
-  // Pausas e mensalidades juntas, da mais recente para a mais antiga.
+  // Pausas, mensalidades, pacotes e aulas juntos, do mais recente para o mais antigo.
   const historico = [
     ...(folha.mensalidades || []).map((m) => ({ data: m.vencimento, no: () => linhaMensalidade(a, m) })),
     ...a.pausas.map((p) => ({ data: p.inicio, no: () => linhaPausa(a, p) })),
+    ...(folha.pacotes || []).map((k) => ({ data: k.recebidoEm + 'z', no: () => linhaPacote(a, k) })), // no mesmo dia, o pacote vem antes das aulas
+    ...(folha.aulas || []).map((u) => ({ data: u.data, no: () => linhaAula(a, u) })),
   ].sort((x, y) => (x.data < y.data ? 1 : -1));
+  const ehPacote = a.modo === 'pacote';
 
   return [
     el('div', { class: 'linha entre topo' },
@@ -688,6 +737,17 @@ function folhaAluno() {
       el('span', { class: 'chip ' + classe }, rotulo)
     ),
     erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    ehPacote && el('div', { class: 'cartao' },
+      el('div', { class: 'linha entre' },
+        el('span', { class: 'suave' }, `Pacote de ${aulasTxt(a.pacoteAulas)} · ${reais(a.valor)}`),
+        el('strong', {}, a.saldo < 0 ? `Deve ${aulasTxt(-a.saldo)}` : `Saldo: ${aulasTxt(a.saldo)}`)
+      ),
+      a.status === 'ativo' && el('div', { class: 'dupla' },
+        el('button', { class: 'botao menor', onclick: () => registrarAula(a) }, 'Registrar aula hoje'),
+        el('button', { class: 'botao claro menor', onclick: () => irPara('aula') }, 'Aula em outro dia')
+      ),
+      el('button', { class: 'botao claro menor', onclick: () => abrirPacote(a) }, 'Registrar pacote pago')
+    ),
     el('div', { class: 'dupla' },
       el('button', { class: 'botao claro menor', onclick: () => irPara('form') }, 'Editar cadastro'),
       el('button', { class: 'botao claro menor', disabled: !!folha.novaPausa, onclick: () => irPara('aluno', { novaPausa: true }) }, 'Registrar pausa')
@@ -697,14 +757,113 @@ function folhaAluno() {
       el('a', { class: 'botao claro menor', href: `https://wa.me/${a.whatsapp}?text=${encodeURIComponent(trilha)}`, target: '_blank', rel: 'noopener' }, 'Enviar link da trilha')
     ),
     folha.novaPausa && formularioPausa(a),
-    el('h3', {}, 'Mensalidades e pausas'),
+    el('h3', {}, ehPacote ? 'Pacotes, aulas e pausas' : 'Mensalidades e pausas'),
     !folha.mensalidades && el('p', { class: 'suave' }, 'Carregando…'),
-    folha.mensalidades && !historico.length && el('p', { class: 'suave' }, 'Nada por aqui ainda. A primeira mensalidade aparece no mês em que o controle começa.'),
+    folha.mensalidades && !historico.length && el('p', { class: 'suave' }, ehPacote ? 'Nada por aqui ainda. Registre o pacote pago e as aulas dadas.' : 'Nada por aqui ainda. A primeira mensalidade aparece no mês em que o controle começa.'),
     folha.mensalidades && historico.map((item) => item.no()),
     el('div', { class: 'linha entre' },
-      el('button', { class: 'link', onclick: () => irPara('pagar', { m: null }) }, 'Lançar outro mês'),
+      ehPacote ? el('span') : el('button', { class: 'link', onclick: () => irPara('pagar', { m: null }) }, 'Lançar outro mês'),
       el('button', { class: 'link', onclick: fecharFolha }, 'Fechar')
     ),
+  ];
+}
+
+function linhaPacote(a, k) {
+  return el('div', { class: 'mensalidade' },
+    el('div', { class: 'linha entre topo' },
+      el('div', {}, el('h3', {}, `Pacote de ${aulasTxt(k.aulas)}`), el('p', { class: 'pequeno suave' }, `Recebido em ${dataBR(k.recebidoEm)} · ${reais(k.valor)}`)),
+      el('span', { class: 'chip lima' }, 'Pago')
+    ),
+    el('div', { class: 'linha' }, el('button', { class: 'link pequeno', onclick: () => abrirPacote(a, k) }, 'Corrigir'))
+  );
+}
+
+function linhaAula(a, u) {
+  return el('div', { class: 'mensalidade' },
+    el('div', { class: 'linha entre' },
+      el('p', {}, `Aula em ${dataBR(u.data)}`),
+      el('button', {
+        class: 'link pequeno',
+        'aria-label': `Apagar aula de ${dataBR(u.data)}`,
+        onclick: () => {
+          if (confirm(`Apagar a aula de ${dataBR(u.data)}?`)) agirNaFolha(() => api(`alunos/${a.id}/aulas/${u.id}`, 'DELETE'));
+        },
+      }, 'Apagar')
+    )
+  );
+}
+
+// Registrar ou corrigir um pacote pago.
+function folhaPacote() {
+  const a = alunoDaFolha();
+  const k = folha.k;
+  const aulas = el('input', { id: 'kAulas', type: 'number', min: '1', max: '200', required: true, inputmode: 'numeric', value: k?.aulas || a.pacoteAulas || '' });
+  const valor = el('input', { id: 'kValor', type: 'text', inputmode: 'decimal', required: true, placeholder: 'Ex.: 800,00', value: paraCampoValor(k?.valor || a.valor) });
+  const data = el('input', { id: 'kData', type: 'date', required: true, max: dados.hoje, value: k?.recebidoEm || dados.hoje });
+  const voltar = () => (folha.mensalidades ? irPara('aluno', { k: null }) : fecharFolha());
+  const faltando = avisoNoFormulario();
+  return [
+    el('div', {}, el('p', { class: 'pequeno suave' }, a.nome), el('h2', {}, k ? 'Corrigir pacote' : 'Pacote pago')),
+    a.pacoteInformado && !k && el('p', { class: 'suave' }, 'O aluno avisou que pagou. Confira no banco antes de salvar.'),
+    erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    el('form', {
+      class: 'coluna',
+      onsubmit: (e) => {
+        e.preventDefault();
+        const centavos = paraCentavos(valor.value);
+        if (centavos < 1) return faltando.mostrar('Informe o valor recebido.');
+        agirNaFolha(async () => {
+          const dadosPacote = { aulas: Number(aulas.value), valor: centavos, data: data.value };
+          await (k ? api(`alunos/${a.id}/pacotes/${k.id}`, 'PUT', dadosPacote) : api(`alunos/${a.id}/pacotes`, 'POST', dadosPacote));
+          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+        });
+      },
+    },
+      el('div', { class: 'dupla' },
+        el('div', { class: 'campo' }, el('label', { for: 'kAulas' }, 'Aulas no pacote'), aulas),
+        el('div', { class: 'campo' }, el('label', { for: 'kValor' }, 'Valor recebido (R$)'), valor)
+      ),
+      el('div', { class: 'campo' }, el('label', { for: 'kData' }, 'Recebido em'), data),
+      el('p', { class: 'pequeno suave' }, 'As aulas entram no saldo do aluno, e o valor entra no faturamento do dia do recebimento.'),
+      faltando,
+      el('button', { class: 'botao', type: 'submit' }, k ? 'Salvar correção' : 'Registrar pacote')
+    ),
+    k && el('button', {
+      class: 'botao claro menor',
+      onclick: () => {
+        if (confirm('Apagar este pacote? As aulas dele saem do saldo e o valor sai do faturamento.')) {
+          agirNaFolha(async () => {
+            await api(`alunos/${a.id}/pacotes/${k.id}`, 'DELETE');
+            folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+          });
+        }
+      },
+    }, 'Apagar pacote'),
+    el('button', { class: 'link', onclick: voltar }, 'Voltar'),
+  ];
+}
+
+// Registrar uma aula dada em outro dia.
+function folhaAula() {
+  const a = alunoDaFolha();
+  const data = el('input', { id: 'uData', type: 'date', required: true, max: dados.hoje, value: dados.hoje });
+  return [
+    el('div', {}, el('p', { class: 'pequeno suave' }, a.nome), el('h2', {}, 'Registrar aula')),
+    erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    el('form', {
+      class: 'coluna',
+      onsubmit: (e) => {
+        e.preventDefault();
+        agirNaFolha(async () => {
+          await api(`alunos/${a.id}/aulas`, 'POST', { data: data.value });
+          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+        });
+      },
+    },
+      el('div', { class: 'campo' }, el('label', { for: 'uData' }, 'Dia da aula'), data),
+      el('button', { class: 'botao', type: 'submit' }, 'Registrar aula')
+    ),
+    el('button', { class: 'link', onclick: () => irPara('aluno') }, 'Voltar'),
   ];
 }
 
@@ -775,6 +934,82 @@ function seletorDia(id, valor) {
   );
 }
 
+// Aviso de campo faltando dentro do formulário: não redesenha a tela, para nada do que já foi preenchido se perder.
+function avisoNoFormulario() {
+  const no = el('p', { class: 'erro', role: 'alert', hidden: true });
+  no.mostrar = (texto) => {
+    no.textContent = texto;
+    no.hidden = false;
+    no.scrollIntoView({ block: 'nearest' });
+    // Some assim que a pessoa mexe no formulário de novo.
+    no.closest('form')?.addEventListener('input', () => (no.hidden = true), { once: true });
+    no.closest('form')?.addEventListener('click', (e) => { if (e.target.closest('.opcao')) no.hidden = true; }, { once: true });
+  };
+  return no;
+}
+
+// Campos de cobrança, iguais no cadastro, na edição e na confirmação do convite:
+// mensalidade (valor + dia de vencimento) ou pacote de aulas (aulas + valor do pacote).
+function camposCobranca(prefixo, a, { novo }) {
+  let modo = a?.modo === 'pacote' ? 'pacote' : 'mensal';
+  const id = (n) => prefixo + n;
+  const valor = el('input', { id: id('Valor'), type: 'text', inputmode: 'decimal', placeholder: 'Ex.: 250,00', value: a?.valor && a.modo !== 'pacote' ? paraCampoValor(a.valor) : '' });
+  const dia = seletorDia(id('Dia'), a?.diaVenc || null);
+  dia.required = false; // validado abaixo: o campo some quando a cobrança é por pacote
+  const primeira = el('select', { id: id('Primeira') }, el('option', { value: 'atual' }, 'Neste mês'), el('option', { value: 'proximo' }, 'No mês que vem'));
+  const aulas = el('input', { id: id('Aulas'), type: 'number', min: '1', max: '200', inputmode: 'numeric', placeholder: 'Ex.: 10', value: a?.pacoteAulas || '' });
+  const valorPacote = el('input', { id: id('ValorPacote'), type: 'text', inputmode: 'decimal', placeholder: 'Ex.: 800,00', value: a?.modo === 'pacote' && a.valor ? paraCampoValor(a.valor) : '' });
+  const pago = el('input', { type: 'checkbox', id: id('Pago') });
+  const rot = (texto, campoEl) => el('div', { class: 'campo' }, el('label', { for: campoEl.id }, texto), campoEl);
+
+  const mensal = el('div', { class: 'coluna', hidden: modo !== 'mensal' },
+    el('div', { class: 'dupla' }, rot('Mensalidade (R$)', valor), rot('Dia do vencimento', dia)),
+    AVISO_FIM_DE_MES(),
+    novo && el('div', { class: 'campo' },
+      el('label', { for: primeira.id }, 'Primeira mensalidade a controlar'), primeira,
+      el('p', { class: 'pequeno suave' }, 'Escolha "No mês que vem" se a deste mês já está resolvida.'))
+  );
+  const pacote = el('div', { class: 'coluna', hidden: modo !== 'pacote' },
+    el('div', { class: 'dupla' }, rot('Aulas no pacote', aulas), rot('Valor do pacote (R$)', valorPacote)),
+    el('p', { class: 'pequeno suave' }, 'Você marca cada aula dada, e o app mostra quantas restam e avisa quando o pacote acabar.'),
+    (novo || a?.modo !== 'pacote') && el('label', { class: 'marca' }, pago, el('span', {}, 'O aluno já pagou este pacote (registra o recebimento hoje)'))
+  );
+  const opcao = (valorModo, texto) => el('button', {
+    type: 'button', class: 'opcao', 'aria-pressed': String(modo === valorModo),
+    onclick: (e) => {
+      modo = valorModo;
+      e.currentTarget.parentElement.querySelectorAll('.opcao').forEach((b) => b.setAttribute('aria-pressed', String(b === e.currentTarget)));
+      mensal.hidden = modo !== 'mensal';
+      pacote.hidden = modo !== 'pacote';
+    },
+  }, texto);
+
+  return {
+    nos: [
+      el('fieldset', { class: 'pergunta' },
+        el('legend', {}, 'Como o aluno paga?'),
+        el('div', { class: 'opcoes' }, opcao('mensal', 'Mensalidade'), opcao('pacote', 'Pacote de aulas'))
+      ),
+      mensal,
+      pacote,
+    ],
+    // Devolve os campos para a API, ou uma mensagem de erro.
+    ler() {
+      if (modo === 'pacote') {
+        const n = Number(aulas.value);
+        if (!(n >= 1 && n <= 200)) return { erro: 'Informe quantas aulas tem o pacote.' };
+        const centavos = paraCentavos(valorPacote.value);
+        if (centavos < 100) return { erro: 'Informe o valor do pacote.' };
+        return { modo, valor: centavos, pacoteAulas: n, pacotePago: pago.checked };
+      }
+      const centavos = paraCentavos(valor.value);
+      if (centavos < 100) return { erro: 'Informe o valor da mensalidade.' };
+      if (!dia.value) return { erro: 'Escolha o dia do vencimento.' };
+      return { modo, valor: centavos, diaVenc: Number(dia.value), primeiroMes: primeira.value };
+    },
+  };
+}
+
 function abrirFormulario(a) {
   erro = '';
   folha = a ? { tipo: 'form', id: a.id } : { tipo: 'form', id: null };
@@ -787,9 +1022,8 @@ function folhaFormulario() {
   const nome = el('input', { id: 'fNome', type: 'text', required: true, autocomplete: 'off', value: a?.nome || '' });
   const whats = mascararWhats(el('input', { id: 'fWhats', type: 'tel', required: true, autocomplete: 'off', placeholder: '(62) 900000000', value: a ? whatsLocal(a.whatsapp) : '' }));
   const inicio = el('input', { id: 'fInicio', type: 'date', max: dados.hoje, value: a?.dataInicio || '' });
-  const valor = el('input', { id: 'fValor', type: 'text', inputmode: 'decimal', required: true, placeholder: 'Ex.: 250,00', value: a?.valor ? paraCampoValor(a.valor) : '' });
-  const dia = seletorDia('fDia', a?.diaVenc || null);
-  const primeira = el('select', { id: 'fPrimeira' }, el('option', { value: 'atual' }, 'Neste mês'), el('option', { value: 'proximo' }, 'No mês que vem'));
+  const cobranca = camposCobranca('f', a, { novo: !a });
+  const faltando = avisoNoFormulario();
   const base = el('input', { id: 'fBase', type: 'number', min: '0', max: '600', value: a ? a.baseMeses : 0 });
   const situacao = el('select', { id: 'fSituacao' }, el('option', { value: 'ativo' }, 'Ativo'), el('option', { value: 'inativo' }, 'Inativo (parou de treinar)'));
   if (a) situacao.value = a.status === 'inativo' ? 'inativo' : 'ativo';
@@ -802,18 +1036,15 @@ function folhaFormulario() {
       class: 'coluna',
       onsubmit: (e) => {
         e.preventDefault();
-        const centavos = paraCentavos(valor.value);
-        if (centavos < 100) {
-          erro = 'Informe o valor da mensalidade.';
-          return desenhar();
-        }
-        const campos = { nome: nome.value, whatsapp: whats.value, dataInicio: inicio.value || null, valor: centavos, diaVenc: Number(dia.value) };
+        const c = cobranca.ler();
+        if (c.erro) return faltando.mostrar(c.erro);
+        const campos = { nome: nome.value, whatsapp: whats.value, dataInicio: inicio.value || null, ...c };
         agirNaFolha(async () => {
           if (a) {
             await api('alunos/' + a.id, 'PUT', { ...campos, baseMeses: campos.dataInicio ? undefined : Number(base.value), status: situacao.value });
             folha = { tipo: 'aluno', id: a.id, mensalidades: null };
           } else {
-            await api('alunos', 'POST', { ...campos, primeiroMes: primeira.value });
+            await api('alunos', 'POST', campos);
             folha = null;
             filtro = 'todos';
           }
@@ -823,11 +1054,10 @@ function folhaFormulario() {
       rotulado('Nome completo', nome),
       rotulado('Celular / WhatsApp', whats),
       rotulado('Início dos treinos (opcional)', inicio, 'Serve para contar os meses de treino na trilha do aluno.'),
-      el('div', { class: 'dupla' }, rotulado('Mensalidade (R$)', valor), rotulado('Dia do vencimento', dia)),
-      AVISO_FIM_DE_MES(),
-      !a && rotulado('Primeira mensalidade a controlar', primeira, 'Escolha "No mês que vem" se a deste mês já está resolvida.'),
-      a && rotulado('Situação', situacao, 'Aluno inativo não gera novas mensalidades. Para uma parada temporária, registre uma pausa.'),
+      cobranca.nos,
+      a && rotulado('Situação', situacao, 'Aluno inativo não gera novas cobranças. Para uma parada temporária, registre uma pausa.'),
       a && !inicio.value && rotulado('Meses de treino antes do controle', base, 'Sem a data de início, informe aqui quantos meses o aluno já treinava. Só afeta a trilha e os selos.'),
+      faltando,
       el('button', { class: 'botao', type: 'submit' }, a ? 'Salvar' : 'Cadastrar aluno')
     ),
     el('div', { class: 'linha entre' },
@@ -870,7 +1100,7 @@ function abaNovos() {
     el('div', { class: 'cartao', style: 'gap: 10px' },
       etapa(1, 'Você envia o link pelo WhatsApp ou coloca na bio do Instagram.'),
       etapa(2, 'O aluno abre e preenche nome e WhatsApp.'),
-      etapa(3, 'Ele aparece logo abaixo. Você informa a mensalidade e o vencimento e confirma.')
+      etapa(3, 'Ele aparece logo abaixo. Você informa como ele paga (mensalidade ou pacote de aulas) e confirma.')
     ),
     el('div', { class: 'cartao escuro' },
       el('p', { class: 'pequeno suave' }, 'Seu link de convite (é o mesmo para todos os alunos)'),
@@ -882,29 +1112,22 @@ function abaNovos() {
     !novos.length && el('p', { class: 'suave' }, 'Ninguém por enquanto. Quando um aluno se cadastrar pelo link, ele aparece aqui.'),
     novos.map((a) => {
       const detalhes = [a.mesInicio ? `Treina desde ${dataBR(a.dataInicio).slice(3)}` : 'Não informou quando começou', a.mesesPausa ? `${meses(a.mesesPausa)} de pausa` : null].filter(Boolean).join(', com ');
-      const valor = el('input', { id: 'valor' + a.id, type: 'text', inputmode: 'decimal', required: true, placeholder: 'Ex.: 250,00', value: '' });
-      const dia = seletorDia('dia' + a.id, null);
-      const primeira = el('select', { id: 'primeira' + a.id }, el('option', { value: 'atual' }, 'Neste mês'), el('option', { value: 'proximo' }, 'No mês que vem'));
+      // O dia de vencimento já vem com o que o aluno escolheu no cadastro, se escolheu.
+      const cobranca = camposCobranca('n' + a.id, { diaVenc: a.diaVenc }, { novo: true });
+      const faltando = avisoNoFormulario();
       return el('div', { class: 'cartao' },
-        el('div', {}, el('h3', {}, a.nome), el('p', { class: 'pequeno suave' }, `Cadastrou-se pelo seu link. ${detalhes}. WhatsApp ${whatsLocal(a.whatsapp)}.`)),
+        el('div', {}, el('h3', {}, a.nome), el('p', { class: 'pequeno suave' }, `Cadastrou-se pelo seu link. ${detalhes}.${a.diaVenc ? ` Prefere pagar todo dia ${a.diaVenc}.` : ''} WhatsApp ${whatsLocal(a.whatsapp)}.`)),
         el('form', {
           class: 'coluna',
           onsubmit: (e) => {
             e.preventDefault();
-            const centavos = paraCentavos(valor.value);
-            if (centavos < 100) {
-              erro = 'Informe o valor da mensalidade.';
-              return desenhar();
-            }
-            agir(() => api('alunos/' + a.id, 'PUT', { valor: centavos, diaVenc: Number(dia.value), primeiroMes: primeira.value, status: 'ativo' }));
+            const c = cobranca.ler();
+            if (c.erro) return faltando.mostrar(c.erro);
+            agir(() => api('alunos/' + a.id, 'PUT', { ...c, status: 'ativo' }));
           },
         },
-          el('div', { class: 'dupla' },
-            el('div', { class: 'campo' }, el('label', { for: valor.id }, 'Mensalidade (R$)'), valor),
-            el('div', { class: 'campo' }, el('label', { for: dia.id }, 'Dia do vencimento'), dia)
-          ),
-          AVISO_FIM_DE_MES(),
-          el('div', { class: 'campo' }, el('label', { for: primeira.id }, 'Primeira mensalidade a controlar'), primeira),
+          cobranca.nos,
+          faltando,
           el('button', { class: 'botao menor', type: 'submit' }, 'Confirmar aluno')
         ),
         el('button', {
@@ -1125,7 +1348,7 @@ function desenhar() {
   const novos = dados.alunos.filter((a) => a.status === 'novo').length;
   const abas = [['inicio', 'Início'], ['alunos', 'Alunos'], ['novos', novos ? `Novos (${novos})` : 'Novos'], ['arte', 'Conquista'], ['conta', 'Conta']];
   const conteudo = { inicio: abaInicio, alunos: abaAlunos, novos: abaNovos, arte: abaArte, conta: abaConta }[aba];
-  const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario };
+  const folhas = { fila: folhaFila, aluno: folhaAluno, pagar: folhaPagar, form: folhaFormulario, pacote: folhaPacote, aula: folhaAula };
   // Mantém a rolagem da janela quando ela é redesenhada com o mesmo conteúdo.
   const rolagem = folha && folha.tipo === tipoAnterior ? document.querySelector('.folha')?.scrollTop || 0 : 0;
   tipoAnterior = folha?.tipo || null;

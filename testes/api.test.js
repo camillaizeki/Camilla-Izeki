@@ -83,7 +83,8 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.equal(r.corpo.personal.nome, 'Rafael Lima');
   assert.equal((await chamar('convite/naoexiste', 'GET', null, false)).status, 404);
   assert.equal((await chamar('convite/rafa', 'POST', { nome: 'Ana Souza', whatsapp: '123', aceite: true }, false)).status, 400);
-  r = await chamar('convite/rafa', 'POST', { nome: 'Ana Souza', whatsapp: '(11) 97777-6666', aceite: true }, false);
+  assert.equal((await chamar('convite/rafa', 'POST', { nome: 'Ana Souza', whatsapp: '(11) 97777-6666', diaVenc: 32, aceite: true }, false)).status, 400);
+  r = await chamar('convite/rafa', 'POST', { nome: 'Ana Souza', whatsapp: '(11) 97777-6666', diaVenc: 15, aceite: true }, false);
   assert.equal(r.status, 200);
   const token = r.corpo.token;
 
@@ -105,6 +106,7 @@ test('fluxo completo: personal, aluno, renovação, frases, foto e IA', async ()
   assert.equal(ana.status, 'novo');
   assert.equal(ana.filtro, 'novo');
   assert.equal(ana.whatsapp, '5511977776666');
+  assert.equal(ana.diaVenc, 15); // o dia que a aluna escolheu chega para o personal
   assert.equal((await chamar('alunos/' + ana.id, 'PUT', { valor: 25000, diaVenc: 28, baseMeses: 5, primeiroMes: 'atual' })).status, 200);
 
   // A mensalidade do mês nasce sozinha, pendente (ou atrasada, se hoje já passou do dia 28)

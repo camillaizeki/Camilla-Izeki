@@ -3,6 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test testes/logica.test.js testes/api.test.js testes/migracao.test.js"
+    "test": "node --test testes/*.test.js"
   }
 }

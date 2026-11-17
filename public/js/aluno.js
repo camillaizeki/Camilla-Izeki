@@ -55,10 +55,30 @@ function fase(f) {
   );
 }
 
+const aulasTxt = (n) => (n === 1 ? '1 aula' : `${n} aulas`);
+
+// Aluno de pacote: mostra o saldo de aulas e o botão de renovar.
+function acaoDoPacote() {
+  const saldo = d.saldo;
+  const texto = saldo > 0 ? `Restam ${aulasTxt(saldo)} no seu pacote.` : saldo === 0 ? 'As aulas do seu pacote acabaram.' : `Você já fez ${aulasTxt(-saldo)} além do pacote.`;
+  return [
+    el('div', { class: 'cartao' },
+      el('p', { class: 'suave' }, `Pacote de ${aulasTxt(d.pacoteAulas)}`),
+      el('p', { style: "font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px" }, texto)
+    ),
+    d.pacoteInformado
+      ? el('p', { class: 'pequeno suave centro' }, `${P()} vai confirmar o pagamento e as aulas novas entram no seu saldo.`)
+      : d.pix
+        ? el('button', { class: saldo <= 2 ? 'botao' : 'botao claro', onclick: () => ir('pix') }, 'Renovar pacote')
+        : el('p', { class: 'aviso' }, `${P()} ainda está terminando de configurar a renovação. Volte em breve.`),
+  ];
+}
+
 function acaoDaTrilha() {
   if (d.status === 'novo') {
-    return el('p', { class: 'aviso' }, `Cadastro enviado. Assim que ${P()} confirmar, você poderá desbloquear ${d.nomeAlvo} por aqui.`);
+    return el('p', { class: 'aviso' }, `Cadastro enviado. Assim que ${P()} confirmar, você poderá acompanhar tudo por aqui.`);
   }
+  if (d.modo === 'pacote') return acaoDoPacote();
   if (d.situacao === 'informado') {
     return [
       el('p', { class: 'pequeno suave centro' }, `${P()} vai confirmar o recebimento e ${d.nomeAlvo} fica desbloqueado.`),
@@ -116,11 +136,11 @@ function telaPix() {
   return [
     el('button', { class: 'link', style: 'align-self: flex-start', onclick: () => ir('trilha') }, 'Voltar para a trilha'),
     el('div', {},
-      el('h1', { style: 'font-size: 30px' }, 'Desbloquear ' + d.nomeAlvo),
-      el('p', { class: 'suave', style: 'margin-top: 8px' }, `Mais um mês com ${P()} na sua trilha.`)
+      el('h1', { style: 'font-size: 30px' }, d.modo === 'pacote' ? 'Renovar pacote' : 'Desbloquear ' + d.nomeAlvo),
+      el('p', { class: 'suave', style: 'margin-top: 8px' }, d.modo === 'pacote' ? `Mais ${aulasTxt(d.pacoteAulas)} com ${P()}.` : `Mais um mês com ${P()} na sua trilha.`)
     ),
     el('div', { class: 'cartao', style: 'border: 1.5px solid #01C09E' },
-      el('div', { class: 'linha entre' }, el('span', { class: 'suave' }, 'Mensalidade'), el('strong', { style: "font-family: 'Space Grotesk', sans-serif; font-size: 18px" }, reais(d.valor))),
+      el('div', { class: 'linha entre' }, el('span', { class: 'suave' }, d.modo === 'pacote' ? 'Pacote' : 'Mensalidade'), el('strong', { style: "font-family: 'Space Grotesk', sans-serif; font-size: 18px" }, reais(d.valor))),
       el('p', { class: 'pequeno suave' }, 'Abra o app do seu banco, escolha Pix copia e cola e cole o código:'),
       el('div', { class: 'pix-codigo' }, d.pix),
       copiarBotao
@@ -128,7 +148,9 @@ function telaPix() {
     aviso && el('p', { class: 'erro', role: 'alert' }, aviso),
     el('div', { class: 'coluna fim' },
       paguei,
-      el('p', { class: 'pequeno suave centro' }, `${P()} confirma o recebimento e o mês fica desbloqueado na sua trilha.`)
+      el('p', { class: 'pequeno suave centro' }, d.modo === 'pacote'
+        ? `${P()} confirma o recebimento e as aulas entram no seu saldo.`
+        : `${P()} confirma o recebimento e o mês fica desbloqueado na sua trilha.`)
     ),
   ];
 }
@@ -136,7 +158,7 @@ function telaPix() {
 // ---------- Arte ----------
 
 function mesesNaArte() {
-  return d.situacao === 'informado' ? d.meses + 1 : d.meses;
+  return d.situacao === 'informado' && d.modo !== 'pacote' ? d.meses + 1 : d.meses;
 }
 
 function fraseAtual() {

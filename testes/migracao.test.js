@@ -61,7 +61,7 @@ test('banco da primeira versão é convertido para o controle de mensalidades', 
     { valor_previsto: 25000, vencimento: '2027-01-05', recebido_em: null }
   );
 
-  assert.equal(um("SELECT valor FROM meta WHERE chave = 'versao'").valor, '3');
+  assert.equal(um("SELECT valor FROM meta WHERE chave = 'versao'").valor, '4');
 
   // Rodar de novo não repete a conversão (não cria outra pausa nem desconta outro mês)
   esquecerBanco();
