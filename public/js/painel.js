@@ -458,6 +458,7 @@ function cartaoAluno(a) {
       ),
       el('span', { class: 'chip ' + classe }, rotulo)
     ),
+    a.anamnese?.alertas.length > 0 && el('p', { class: 'pequeno', style: 'color: #b4321f; font-weight: 600' }, '⚠ Atenção à saúde: veja a anamnese'),
     a.abertas.length > 1 && el('p', { class: 'pequeno' }, `${a.abertas.length} mensalidades em aberto: ${reais(a.totalAberto)}`),
     a.pagoAte && el('p', { class: 'pequeno' }, `Pago adiantado até ${a.pagoAte}.`),
     m?.informado && el('p', { class: 'pequeno suave' }, 'O aluno avisou que pagou. Confira antes de marcar.'),
@@ -716,6 +717,7 @@ async function agirNaFolha(funcao) {
         folha.mensalidades = h.mensalidades;
         folha.pacotes = h.pacotes;
         folha.aulas = h.aulas;
+        folha.anamnese = h.anamnese;
       }
     }
   } catch (e) {
@@ -805,6 +807,32 @@ function formularioPausa(a) {
   );
 }
 
+// Anamnese do autocadastro: alertas de saúde em destaque, resumo e as respostas completas.
+function blocoAnamnese(a) {
+  const an = a.anamnese;
+  if (!an) return el('p', { class: 'pequeno suave' }, 'Sem anamnese: o aluno não se cadastrou pelo link de convite.');
+  const completa = folha.anamnese;
+  return el('div', { class: 'coluna', style: 'gap: 10px' },
+    an.alertas.length > 0 && el('div', { class: 'cartao alerta-saude' },
+      el('h3', {}, 'Atenção à saúde'),
+      el('ul', { class: 'pequeno', style: 'margin: 0; padding-left: 18px' }, an.alertas.map((t) => el('li', {}, t)))
+    ),
+    el('div', { class: 'cartao' },
+      el('h3', {}, 'Sobre o aluno'),
+      an.resumo && el('p', { class: 'pequeno' }, an.resumo),
+      !an.saude && el('p', { class: 'pequeno suave' }, 'Preferiu não responder sobre saúde.'),
+      completa && el('details', {},
+        el('summary', { class: 'pequeno', style: 'cursor: pointer; font-weight: 600' }, 'Ver todas as respostas'),
+        completa.etapas.map((e) => el('div', { style: 'margin-top: 10px' },
+          el('p', { class: 'pequeno', style: 'font-weight: 600' }, e.etapa),
+          e.itens.map((i) => el('p', { class: 'pequeno' }, el('span', { class: 'suave' }, i.pergunta + ' '), i.resposta))
+        )),
+        el('p', { class: 'pequeno suave', style: 'margin-top: 10px' }, `Respondida em ${dataBR(completa.respondidaEm.slice(0, 10))}.`)
+      )
+    )
+  );
+}
+
 function folhaAluno() {
   const a = alunoDaFolha();
   const [classe, rotulo] = chipDoAluno(a);
@@ -828,6 +856,7 @@ function folhaAluno() {
       el('span', { class: 'chip ' + classe }, rotulo)
     ),
     erro && el('p', { class: 'erro', role: 'alert' }, erro),
+    blocoAnamnese(a),
     ehPacote && el('div', { class: 'cartao' },
       el('div', { class: 'linha entre' },
         el('span', { class: 'suave' }, `Pacote de ${aulasTxt(a.pacoteAulas)} · ${reais(a.valor)}`),
@@ -906,7 +935,7 @@ function folhaPacote() {
         agirNaFolha(async () => {
           const dadosPacote = { aulas: Number(aulas.value), valor: centavos, data: data.value };
           await (k ? api(`alunos/${a.id}/pacotes/${k.id}`, 'PUT', dadosPacote) : api(`alunos/${a.id}/pacotes`, 'POST', dadosPacote));
-          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades, anamnese: folha.anamnese };
         });
       },
     },
@@ -925,7 +954,7 @@ function folhaPacote() {
         if (confirm('Apagar este pacote? As aulas dele saem do saldo e o valor sai do faturamento.')) {
           agirNaFolha(async () => {
             await api(`alunos/${a.id}/pacotes/${k.id}`, 'DELETE');
-            folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+            folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades, anamnese: folha.anamnese };
           });
         }
       },
@@ -947,7 +976,7 @@ function folhaAula() {
         e.preventDefault();
         agirNaFolha(async () => {
           await api(`alunos/${a.id}/aulas`, 'POST', { data: data.value });
-          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades, anamnese: folha.anamnese };
         });
       },
     },
@@ -967,7 +996,7 @@ function folhaPagar() {
   const valor = el('input', { id: 'valorRec', type: 'text', inputmode: 'decimal', required: true, value: paraCampoValor(m?.valorRecebido || m?.valor || a.valor) });
   const acao = (nome) => agirNaFolha(async () => {
     await api(`alunos/${a.id}/mensalidades/${m.mes}`, 'POST', { acao: nome });
-    folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+    folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades, anamnese: folha.anamnese };
   });
   return [
     el('div', {}, el('p', { class: 'pequeno suave' }, a.nome), el('h2', {}, m ? maiuscula(m.rotulo) : 'Lançar um recebimento')),
@@ -991,7 +1020,7 @@ function folhaPagar() {
             numero++;
             if (numero > 12) { numero = 1; ano++; }
           }
-          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades };
+          folha = { tipo: 'aluno', id: a.id, mensalidades: folha.mensalidades, anamnese: folha.anamnese };
         });
       },
     },
@@ -1190,7 +1219,7 @@ function abaNovos() {
     ),
     el('div', { class: 'cartao', style: 'gap: 10px' },
       etapa(1, 'Você envia o link pelo WhatsApp ou coloca na bio do Instagram.'),
-      etapa(2, 'O aluno abre e preenche nome e WhatsApp.'),
+      etapa(2, 'O aluno abre, preenche nome e WhatsApp e responde uma anamnese rápida, de tocar.'),
       etapa(3, 'Ele aparece logo abaixo. Você informa como ele paga (mensalidade ou pacote de aulas) e confirma.')
     ),
     el('div', { class: 'cartao escuro' },
@@ -1208,6 +1237,12 @@ function abaNovos() {
       const faltando = avisoNoFormulario();
       return el('div', { class: 'cartao' },
         el('div', {}, el('h3', {}, a.nome), el('p', { class: 'pequeno suave' }, `Cadastrou-se pelo seu link. ${detalhes}.${a.diaVenc ? ` Prefere pagar todo dia ${a.diaVenc}.` : ''} WhatsApp ${whatsLocal(a.whatsapp)}.`)),
+        a.anamnese && el('div', { class: a.anamnese.alertas.length ? 'cartao alerta-saude' : 'cartao', style: 'padding: 12px; gap: 6px' },
+          el('p', { class: 'pequeno', style: 'font-weight: 600' }, a.anamnese.alertas.length ? '⚠ Anamnese com alerta de saúde' : 'Anamnese respondida'),
+          a.anamnese.resumo && el('p', { class: 'pequeno' }, a.anamnese.resumo),
+          a.anamnese.alertas.map((t) => el('p', { class: 'pequeno' }, '• ' + t)),
+          el('p', { class: 'pequeno suave' }, 'Depois de confirmar, todas as respostas ficam na ficha do aluno.')
+        ),
         el('form', {
           class: 'coluna',
           onsubmit: (e) => {

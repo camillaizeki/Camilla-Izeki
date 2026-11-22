@@ -371,3 +371,11 @@ body.admin #app { max-width: 980px; }
 /* Suporte: WhatsApp e e-mail lado a lado */
 .acoes-suporte { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .acoes-suporte .botao { text-decoration: none; display: flex; align-items: center; justify-content: center; }
+
+/* Anamnese do convite: opções longas em uma coluna e barra de progresso */
+.opcoes.lista { grid-template-columns: 1fr; }
+.opcoes.lista .opcao { text-align: left; justify-content: flex-start; }
+.progresso { height: 6px; border-radius: 999px; background: var(--linha); overflow: hidden; }
+.progresso > div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--marca), var(--marca-forte)); transition: width 0.25s ease; }
+.alerta-saude { border: 1.5px solid #e5533d; background: #fff1ee; }
+.alerta-saude h3 { color: #b4321f; }

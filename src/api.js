@@ -10,6 +10,7 @@ import {
 import {
   chamarMP, mpConfigurado, montarPreferencia, montarPix, dadosDoPix, montarRecorrente, statusRecorrenteDoMP, linkDoCheckout, avisoAutentico, ErroMP,
 } from '../lib/mercadopago.js';
+import { ANAMNESE, validarAnamnese, lerAnamnese, itensDaAnamnese } from '../lib/anamnese.js';
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
@@ -289,6 +290,7 @@ function alunoParaPainel(a, pagamentos, pausas, hoje, pacotes = [], aulas = []) 
     filtro: filtroDoAluno(a, pagamentos, c.emPausa, hoje),
     abertas,
     modo: ehPacote ? 'pacote' : 'mensal',
+    anamnese: lerAnamnese(a.anamnese),
     ...(ehPacote && {
       situacao: pac.situacao,
       // Mensalidade antiga ainda em aberto (de antes de mudar para pacote) pesa mais que o pacote.
@@ -691,6 +693,7 @@ async function rotear(request, env, partes) {
         mensalidades: pagamentos.sort((x, y) => (x.mes < y.mes ? 1 : -1)).map((m) => mensalidadeParaPainel(m, hoje)),
         pacotes: pacotes.map((k) => ({ id: k.id, aulas: k.aulas, valor: k.valor, recebidoEm: k.recebido_em })),
         aulas: aulas.map((u) => ({ id: u.id, data: u.data })),
+        anamnese: itensDaAnamnese(aluno.anamnese, 'você'),
       });
     }
 
@@ -879,7 +882,7 @@ async function rotear(request, env, partes) {
     const p = await db.prepare('SELECT * FROM personais WHERE slug = ?').bind(String(b).toLowerCase()).first();
     if (!p) throw new Falha('Convite não encontrado. Confira o link com seu personal.', 404);
     if (metodo === 'GET') {
-      return json({ personal: { nome: p.nome, slug: p.slug, temFoto: !!p.foto } });
+      return json({ personal: { nome: p.nome, slug: p.slug, temFoto: !!p.foto }, anamnese: ANAMNESE });
     }
     if (metodo === 'POST') {
       const d = await corpo(request);
@@ -888,6 +891,15 @@ async function rotear(request, env, partes) {
       const repetido = await db.prepare('SELECT id FROM alunos WHERE personal_id = ? AND whatsapp = ?').bind(p.id, whats).first();
       if (repetido) throw new Falha(`Este WhatsApp já está cadastrado com ${p.nome.trim()}. Peça o seu link.`, 409);
       if (!d.aceite) throw new Falha('É preciso aceitar o compartilhamento dos dados para continuar.');
+      // Anamnese: opcional para quem abriu a página antes desta versão; quando vem, é conferida inteira.
+      let anamnese = null;
+      if (d.anamnese) {
+        try {
+          anamnese = JSON.stringify(validarAnamnese(d.anamnese));
+        } catch (e) {
+          throw new Falha(e.message);
+        }
+      }
       const h = hojeBR();
       const mesCadastro = chaveMes(h.ano, h.mes);
       let mesInicio = null;
@@ -905,10 +917,10 @@ async function rotear(request, env, partes) {
       const token = aleatorio(12);
       await db
         .prepare(
-          'INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, data_inicio, meses_pausa, base_meses, seq_base, mes_cadastro, status, valor, dia_venc, criado_em) ' +
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?, ?, ?)"
+          'INSERT INTO alunos (personal_id, token, nome, whatsapp, mes_inicio, data_inicio, meses_pausa, base_meses, seq_base, mes_cadastro, status, valor, dia_venc, criado_em, anamnese) ' +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'novo', ?, ?, ?, ?)"
         )
-        .bind(p.id, token, nome, whats, mesInicio, mesInicio ? mesInicio + '-01' : null, pausa, base, pausa > 0 ? 0 : base, mesCadastro, null, diaAluno, new Date().toISOString())
+        .bind(p.id, token, nome, whats, mesInicio, mesInicio ? mesInicio + '-01' : null, pausa, base, pausa > 0 ? 0 : base, mesCadastro, null, diaAluno, new Date().toISOString(), anamnese)
         .run();
       return json({ token });
     }
