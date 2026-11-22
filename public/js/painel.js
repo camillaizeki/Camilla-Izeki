@@ -1219,7 +1219,7 @@ function abaNovos() {
     ),
     el('div', { class: 'cartao', style: 'gap: 10px' },
       etapa(1, 'Você envia o link pelo WhatsApp ou coloca na bio do Instagram.'),
-      etapa(2, 'O aluno abre, preenche nome e WhatsApp e responde uma anamnese rápida, de tocar.'),
+      etapa(2, dados.personal.anamneseAtiva ? 'O aluno abre, preenche nome e WhatsApp e responde uma anamnese rápida, de tocar.' : 'O aluno abre e preenche nome e WhatsApp.'),
       etapa(3, 'Ele aparece logo abaixo. Você informa como ele paga (mensalidade ou pacote de aulas) e confirma.')
     ),
     el('div', { class: 'cartao escuro' },
@@ -1227,6 +1227,19 @@ function abaNovos() {
       el('p', { style: "font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 17px; word-break: break-all" }, linkConvite().replace(/^https?:\/\//, '')),
       copiarBotao,
       el('a', { class: 'botao claro menor', href: 'https://wa.me/?text=' + encodeURIComponent(convite), target: '_blank', rel: 'noopener' }, 'Enviar pelo WhatsApp')
+    ),
+    el('div', { class: 'cartao' },
+      el('h3', {}, 'Ficha de anamnese no cadastro'),
+      el('p', { class: 'pequeno suave' }, dados.personal.anamneseAtiva
+        ? 'O aluno responde objetivos, rotina, saúde e jeito de treinar, em poucos toques, logo depois do nome e WhatsApp.'
+        : 'O aluno preenche só nome, WhatsApp e quando começou. Você pode ligar a anamnese quando quiser.'),
+      el('div', { class: 'opcoes' },
+        [[true, 'Enviar anamnese'], [false, 'Só dados básicos']].map(([valor, rotulo]) =>
+          el('button', {
+            class: 'opcao', type: 'button', 'aria-pressed': String(dados.personal.anamneseAtiva === valor),
+            onclick: () => dados.personal.anamneseAtiva !== valor && agir(async () => { await api('conta/anamnese', 'PUT', { ativa: valor }); }),
+          }, rotulo))
+      )
     ),
     el('h3', {}, novos.length ? `Aguardando sua confirmação (${novos.length})` : 'Aguardando sua confirmação'),
     !novos.length && el('p', { class: 'suave' }, 'Ninguém por enquanto. Quando um aluno se cadastrar pelo link, ele aparece aqui.'),

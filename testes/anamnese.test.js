@@ -157,3 +157,37 @@ test('autocadastro com anamnese aparece no painel e na ficha do aluno', async ()
   assert.ok(etapas[4].itens.some((i) => i.pergunta === 'O que você poderia melhorar?'));
   esquecerBanco();
 });
+
+test('o personal escolhe se o convite pede a anamnese', async () => {
+  esquecerBanco();
+  const env = { DB: bancoFalso() };
+  let cookie = '';
+  const chamar = async (caminho, metodo = 'GET', dados) => {
+    const url = 'https://renova.exemplo/api/' + caminho;
+    const r = await atenderApi(new Request(url, { method: metodo, headers: { 'content-type': 'application/json', cookie }, body: dados ? JSON.stringify(dados) : undefined }), env, caminho.split('/'));
+    const c = r.headers.get('set-cookie');
+    if (c) cookie = c.split(';')[0];
+    return { status: r.status, corpo: await r.json() };
+  };
+  await chamar('conta/criar', 'POST', { nome: 'Rafa Lima', email: 'rafa@exemplo.com', senha: 'senha-forte-1', slug: 'rafa' });
+  let r = await chamar('painel');
+  assert.equal(r.corpo.personal.anamneseAtiva, true, 'ligada por padrão');
+  assert.equal((await chamar('conta/anamnese', 'PUT', { ativa: 'talvez' })).status, 400);
+  r = await chamar('conta/anamnese', 'PUT', { ativa: false });
+  assert.equal(r.corpo.anamneseAtiva, false);
+  assert.equal((await chamar('painel')).corpo.personal.anamneseAtiva, false);
+  const pessoal = cookie;
+
+  cookie = '';
+  assert.deepEqual((await chamar('convite/rafa')).corpo.anamnese, []);
+  // Mesmo que alguém mande respostas, com a anamnese desligada nada é guardado
+  r = await chamar('convite/rafa', 'POST', { nome: 'Ana Souza', whatsapp: '62911112222', aceite: true, anamnese: completas() });
+  assert.equal(r.status, 200);
+  cookie = pessoal;
+  assert.equal((await chamar('painel')).corpo.alunos[0].anamnese, null);
+
+  await chamar('conta/anamnese', 'PUT', { ativa: true });
+  cookie = '';
+  assert.equal((await chamar('convite/rafa')).corpo.anamnese.length, 5);
+  esquecerBanco();
+});
