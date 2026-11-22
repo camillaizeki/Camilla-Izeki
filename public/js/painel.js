@@ -1,7 +1,8 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
 import { api, el, icone, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
 import { iniciarInstalacao, avisoInstalar, secaoInstalar } from './instalar.js';
-import { blocoPlanos, blocoRenovacao, textoSituacao, voltaDoCheckout, avisoPagamento, ocupado, SUPORTE } from './planos.js';
+import { blocoPlanos, blocoRenovacao, textoSituacao, voltaDoCheckout, avisoPagamento, ocupado } from './planos.js';
+import { cartaoSuporte, botoesSuporte } from './suporte.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
 let aba = 'inicio';
@@ -103,10 +104,14 @@ function telaTravada() {
     el('div', { class: 'coluna' },
       el('h1', {}, bloqueada ? 'Conta suspensa' : a.situacao === 'teste_encerrado' ? 'Seu teste grátis terminou' : 'Seu plano venceu'),
       el('p', { class: 'suave' }, bloqueada
-        ? `Fale com a gente para entender o que houve: ${SUPORTE}.`
+        ? 'Fale com a gente pelo WhatsApp ou e-mail para entender o que houve.'
         : 'Seus alunos, mensalidades e histórico continuam guardados, e os links dos alunos seguem funcionando. Escolha um plano para voltar a usar o painel.')
     ),
     !bloqueada && (planos ? blocoPlanos(planos, desenhar, pixConfirmado) : el('p', { class: 'suave' }, 'Carregando planos…')),
+    cartaoSuporte(planos && { nome: planos.nome, email: planos.email }, {
+      titulo: bloqueada ? 'Falar com o suporte' : 'Dúvidas sobre o pagamento?',
+      motivo: bloqueada ? 'minha conta está suspensa' : 'tenho uma dúvida sobre o pagamento da assinatura',
+    }),
     el('button', { class: 'link', onclick: () => agir(async () => { await api('conta/sair', 'POST', {}); travado = null; dados = null; }) }, 'Sair da conta'),
   ];
 }
@@ -205,7 +210,10 @@ function telaConta() {
       erro && el('p', { class: 'erro', role: 'alert' }, erro),
       el('button', { class: 'botao', type: 'submit' }, criando ? 'Criar conta' : esqueci ? 'Salvar senha nova' : 'Entrar')
     ),
-    esqueci && el('p', { class: 'pequeno suave' }, 'Não tem mais o código? ', el('a', { href: '/privacidade' }, 'Fale com a gente'), ' para recuperar o acesso.'),
+    esqueci && el('div', { class: 'coluna', style: 'gap: 8px' },
+      el('p', { class: 'pequeno suave' }, 'Não tem mais o código? Fale com a gente para recuperar o acesso.'),
+      botoesSuporte(null, 'perdi a senha e o código de recuperação; o e-mail da minha conta é ...')
+    ),
     !criando && !esqueci && el('button', { class: 'link', onclick: mudar('esqueci') }, 'Esqueci minha senha'),
     el('button', { class: 'link', onclick: mudar(criando || esqueci ? 'entrar' : 'criar') }, criando ? 'Já tenho conta' : esqueci ? 'Voltar para entrar' : 'Sou novo por aqui: criar conta'),
   ];
@@ -1409,6 +1417,7 @@ function abaConta() {
         }),
       }, p.temCodigo ? 'Gerar novo código' : 'Gerar código de recuperação')
     ),
+    cartaoSuporte({ nome: p.nome, email: p.email }, { motivo: 'tenho uma dúvida' }),
     secaoInstalar(),
     el('button', { class: 'link', onclick: () => agir(async () => { await api('conta/sair', 'POST', {}); dados = null; }) }, 'Sair da conta'),
   ];

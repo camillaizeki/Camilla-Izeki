@@ -1,5 +1,6 @@
 // Planos do Renova.AI: mostra os valores, leva ao pagamento (Mercado Pago) e confere a volta.
 import { api, el, reais, copiar } from './comum.js';
+import { SUPORTE_EMAIL, SUPORTE_WHATSAPP_TEXTO } from './suporte.js';
 
 let plano = 'anual';
 let forma = 'pix'; // pix | cartao
@@ -64,7 +65,7 @@ function telaPix(redesenhar) {
   );
 }
 
-export const SUPORTE = 'izekicamilla@gmail.com';
+export const SUPORTE = `WhatsApp ${SUPORTE_WHATSAPP_TEXTO} ou ${SUPORTE_EMAIL}`;
 // Titular da conta que recebe: é o nome que o banco mostra na hora de pagar o Pix.
 const RECEBEDOR = '36.348.714 CAMILLA IZEKI MARTINS';
 
@@ -310,7 +311,7 @@ const MENSAGENS = {
   aguardando: () => ({ tipo: 'erro', texto: 'O pagamento não foi concluído. Se quiser, é só tentar de novo.' }),
   recusado: () => ({ tipo: 'erro', texto: 'O pagamento não foi aprovado. Tente de novo ou escolha outra forma de pagamento.' }),
   cancelado: () => ({ tipo: 'erro', texto: 'O pagamento foi cancelado. Se quiser, é só tentar de novo.' }),
-  divergente: () => ({ tipo: 'erro', texto: `Recebemos um valor diferente do plano. Vamos conferir e falar com você pelo e-mail ${SUPORTE}.` }),
+  divergente: () => ({ tipo: 'erro', texto: `Recebemos um valor diferente do plano. Vamos conferir e falar com você. Se preferir, chame a gente: ${SUPORTE}.` }),
   reembolsado: () => ({ tipo: 'erro', texto: 'Este pagamento foi devolvido.' }),
 };
 
