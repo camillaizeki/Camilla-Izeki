@@ -58,8 +58,16 @@ function folhaPlanos() {
   return [
     el('h2', {}, a.situacao === 'teste' ? 'Assine o Renova.AI' : 'Renove seu plano'),
     el('p', { class: 'suave' }, textoSituacao(a) + (a.situacao === 'teste' ? ' Assinando agora, os dias que faltam continuam valendo.' : '')),
-    planos ? blocoPlanos(planos, desenhar) : el('p', { class: 'suave' }, 'Carregando planos…'),
+    planos ? blocoPlanos(planos, desenhar, pixConfirmado) : el('p', { class: 'suave' }, 'Carregando planos…'),
   ];
+}
+
+// Pix aprovado com a tela aberta: fecha a janela de planos e recarrega o painel já liberado.
+async function pixConfirmado(r) {
+  msgPagamento = r;
+  folha = null;
+  await carregar();
+  desenhar();
 }
 
 // Aviso no Início durante o teste e nos últimos dias do plano.
@@ -98,7 +106,7 @@ function telaTravada() {
         ? `Fale com a gente para entender o que houve: ${SUPORTE}.`
         : 'Seus alunos, mensalidades e histórico continuam guardados, e os links dos alunos seguem funcionando. Escolha um plano para voltar a usar o painel.')
     ),
-    !bloqueada && (planos ? blocoPlanos(planos, desenhar) : el('p', { class: 'suave' }, 'Carregando planos…')),
+    !bloqueada && (planos ? blocoPlanos(planos, desenhar, pixConfirmado) : el('p', { class: 'suave' }, 'Carregando planos…')),
     el('button', { class: 'link', onclick: () => agir(async () => { await api('conta/sair', 'POST', {}); travado = null; dados = null; }) }, 'Sair da conta'),
   ];
 }

@@ -18,6 +18,14 @@ if (process.env.MP_SIMULADO) {
   env.MP_FETCH = async (url, opcoes) => {
     const u = new URL(url);
     const responder = (d) => new Response(JSON.stringify(d), { headers: { 'content-type': 'application/json' } });
+    if (u.pathname === '/v1/payments' && opcoes.method === 'POST') {
+      const pag = JSON.parse(opcoes.body);
+      // Pix simulado: fica pendente nas duas primeiras conferências e depois aprova.
+      prefs.set(pag.external_reference, { items: [{ unit_price: pag.transaction_amount }], conferencias: 0, pix: true });
+      return responder({ id: Number(pag.external_reference) + 9000, status: 'pending', point_of_interaction: { transaction_data: {
+        qr_code: '00020126580014br.gov.bcb.pix0136simulado-renova-ai520400005303986540' + pag.transaction_amount + '5802BR5925RENOVA AI6009GOIANIA62070503***6304ABCD',
+        qr_code_base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABc3UBGAAAAABJRU5ErkJggg==' } } });
+    }
     if (u.pathname === '/checkout/preferences') {
       const pref = JSON.parse(opcoes.body);
       prefs.set(pref.external_reference, pref);
@@ -25,6 +33,7 @@ if (process.env.MP_SIMULADO) {
     }
     const ref = u.searchParams.get('external_reference');
     const pref = prefs.get(ref);
+    if (pref?.pix && ++pref.conferencias <= 2) return responder({ results: [{ id: Number(ref) + 9000, external_reference: ref, status: 'pending', currency_id: 'BRL', transaction_amount: pref.items[0].unit_price }] });
     return responder({ results: pref ? [{ id: Number(ref) + 9000, external_reference: ref, status: 'approved', currency_id: 'BRL', transaction_amount: pref.items[0].unit_price, installments: 1 }] : [] });
   };
 }

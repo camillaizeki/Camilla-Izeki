@@ -1,10 +1,63 @@
 // Planos do Renova.AI: mostra os valores, leva ao pagamento (Mercado Pago) e confere a volta.
-import { api, el, reais } from './comum.js';
+import { api, el, reais, copiar } from './comum.js';
 
 let plano = 'anual';
 let metodo = 'pix';
 let enviando = false;
 let erroPlano = '';
+let pixAberto = null; // { id, valor, pix: { copiaECola, qrBase64 } } enquanto o Pix aguarda pagamento
+let acompanhamento = null;
+let ultimoRedesenhar = () => {};
+
+// Voltar do checkout pelo botão "voltar" do navegador restaura a página como estava ("Abrindo o pagamento…").
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted && enviando) {
+    enviando = false;
+    ultimoRedesenhar();
+  }
+});
+
+function pararAcompanhamento() {
+  if (acompanhamento) clearInterval(acompanhamento);
+  acompanhamento = null;
+}
+
+// Confere o Pix a cada 5 segundos por até 30 minutos; ao aprovar, avisa a tela.
+function acompanharPix(aoConfirmar) {
+  pararAcompanhamento();
+  let tentativas = 0;
+  acompanhamento = setInterval(async () => {
+    if (!pixAberto || ++tentativas > 360) return pararAcompanhamento();
+    try {
+      const r = await conferir(pixAberto.id);
+      if (r.status === 'aprovado') {
+        pararAcompanhamento();
+        pixAberto = null;
+        aoConfirmar(r);
+      }
+    } catch { /* tenta de novo */ }
+  }, 5000);
+}
+
+function telaPix(redesenhar) {
+  const copiarBotao = el('button', {
+    class: 'botao',
+    onclick: async () => {
+      copiarBotao.textContent = (await copiar(pixAberto.pix.copiaECola)) ? 'Código copiado' : 'Selecione o código acima e copie';
+    },
+  }, 'Copiar código Pix');
+  return el('div', { class: 'coluna', style: 'gap: 14px' },
+    el('div', { class: 'cartao centro' },
+      el('p', { class: 'suave' }, `Pague ${reais(pixAberto.valor)} no app do seu banco`),
+      pixAberto.pix.qrBase64 && el('img', { src: 'data:image/png;base64,' + pixAberto.pix.qrBase64, alt: 'QR Code do Pix', width: '200', height: '200', style: 'margin: 6px auto; display: block; image-rendering: pixelated' }),
+      el('p', { class: 'pequeno suave' }, 'No celular, copie o código e use "Pix Copia e Cola" no banco.')
+    ),
+    el('div', { class: 'pix-codigo' }, pixAberto.pix.copiaECola),
+    copiarBotao,
+    el('p', { class: 'aviso', role: 'status' }, 'Aguardando o pagamento… Assim que o banco confirmar, o acesso libera sozinho nesta tela. O código vale por 30 minutos.'),
+    el('button', { class: 'link', onclick: () => { pararAcompanhamento(); pixAberto = null; redesenhar(); } }, 'Escolher outra forma de pagamento')
+  );
+}
 
 export const SUPORTE = 'izekicamilla@gmail.com';
 
@@ -22,7 +75,10 @@ export function textoSituacao(a) {
 }
 
 // Escolha de plano e forma de pagamento. "redesenhar" atualiza a tela que contém o bloco.
-export function blocoPlanos(info, redesenhar) {
+// "aoConfirmar" é chamado quando o Pix é aprovado com a tela aberta.
+export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reload()) {
+  ultimoRedesenhar = redesenhar;
+  if (pixAberto) return telaPix(redesenhar);
   const t = info.planos;
   const valor = t[plano][metodo];
   const escolherPlano = (id) => () => { plano = id; erroPlano = ''; redesenhar(); };
@@ -39,7 +95,7 @@ export function blocoPlanos(info, redesenhar) {
   let resumo;
   if (metodo === 'pix') {
     const economia = t[plano].cartao - t[plano].pix;
-    resumo = `Total no Pix: ${reais(t[plano].pix)}${economia > 0 ? ` (${t.descontoPix}% de desconto, ${reais(economia)} a menos)` : ''}. O código aparece na próxima tela e o acesso libera assim que o banco confirmar.`;
+    resumo = `Total no Pix: ${reais(t[plano].pix)}${economia > 0 ? ` (${t.descontoPix}% de desconto, ${reais(economia)} a menos)` : ''}. O código Pix aparece aqui mesmo, e o acesso libera assim que o banco confirmar.`;
   } else if (plano === 'anual' && t.anual.parcelas > 1) {
     resumo = `${reais(t.anual.cartao)} à vista ou em até ${t.anual.parcelas}x no cartão. Os juros do parcelamento ficam por conta de quem paga e aparecem antes de você confirmar.`;
   } else {
@@ -71,6 +127,13 @@ export function blocoPlanos(info, redesenhar) {
         redesenhar();
         try {
           const r = await api('assinatura/checkout', 'POST', { plano, metodo });
+          if (r.pix) {
+            enviando = false;
+            pixAberto = r;
+            acompanharPix(aoConfirmar);
+            redesenhar();
+            return;
+          }
           location.href = r.url;
         } catch (e) {
           erroPlano = e.message;
@@ -78,8 +141,10 @@ export function blocoPlanos(info, redesenhar) {
           redesenhar();
         }
       },
-    }, enviando ? 'Abrindo o pagamento…' : metodo === 'pix' ? `Pagar ${reais(valor)} com Pix` : 'Pagar com cartão'),
-    el('p', { class: 'pequeno suave centro' }, 'Pagamento seguro pelo Mercado Pago. Sem renovação automática: você renova quando quiser, e os dias que ainda restam continuam valendo.')
+    }, enviando ? (metodo === 'pix' ? 'Gerando o Pix…' : 'Abrindo o pagamento…') : metodo === 'pix' ? `Gerar Pix de ${reais(valor)}` : 'Pagar com cartão'),
+    el('p', { class: 'pequeno suave centro' }, metodo === 'pix'
+      ? 'Pix processado pelo Mercado Pago. Sem renovação automática: você renova quando quiser, e os dias que ainda restam continuam valendo.'
+      : 'O cartão é pago na página segura do Mercado Pago, sem precisar de conta lá: basta preencher os dados do cartão. Sem renovação automática.')
   );
 }
 

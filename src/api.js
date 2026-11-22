@@ -7,7 +7,7 @@ import {
   lerConfig, validarConfig, valorCobrado, tabelaPlanos, inicioDoTeste, estenderAcesso, situacaoDoAcesso, temAcesso,
   assinaturaPublica, statusDoMP, mesBR, PLANOS, METODOS,
 } from '../lib/assinatura.js';
-import { chamarMP, mpConfigurado, montarPreferencia, linkDoCheckout, avisoAutentico, ErroMP } from '../lib/mercadopago.js';
+import { chamarMP, mpConfigurado, montarPreferencia, montarPix, dadosDoPix, linkDoCheckout, avisoAutentico, ErroMP } from '../lib/mercadopago.js';
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
@@ -1097,9 +1097,22 @@ async function rotasAssinatura(request, env, db, [b]) {
       .bind(p.id, d.plano, d.metodo, valor, agora, agora)
       .run();
     const registro = { id: r.meta.last_row_id, plano: d.plano, metodo: d.metodo, valor };
+    const origem = new URL(request.url).origin;
+    // Pix: código na tela do app, sem sair para o Mercado Pago.
+    if (d.metodo === 'pix') {
+      const pag = await chamarMP(env, '/v1/payments', {
+        metodo: 'POST',
+        corpo: montarPix({ registro, personal: p, origem }),
+        idempotencia: 'renova-pix-' + registro.id,
+      });
+      const pix = dadosDoPix(pag);
+      await db.prepare('UPDATE assinatura_pagamentos SET mp_pagamento = ? WHERE id = ?').bind(String(pag.id || ''), registro.id).run();
+      return json({ id: registro.id, valor, pix });
+    }
+    // Cartão: checkout do Mercado Pago, onde dá para pagar sem conta, só com os dados do cartão.
     const pref = await chamarMP(env, '/checkout/preferences', {
       metodo: 'POST',
-      corpo: montarPreferencia({ registro, personal: p, origem: new URL(request.url).origin, parcelasMax: config.parcelasMax }),
+      corpo: montarPreferencia({ registro, personal: p, origem, parcelasMax: config.parcelasMax }),
       idempotencia: 'renova-pref-' + registro.id,
     });
     await db.prepare('UPDATE assinatura_pagamentos SET mp_preferencia = ? WHERE id = ?').bind(String(pref.id || ''), registro.id).run();
