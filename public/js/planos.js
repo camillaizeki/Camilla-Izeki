@@ -2,7 +2,8 @@
 import { api, el, reais, copiar } from './comum.js';
 
 let plano = 'anual';
-let metodo = 'pix';
+let forma = 'pix'; // pix | cartao
+let modoCartao = 'recorrente'; // recorrente | parcelado
 let enviando = false;
 let erroPlano = '';
 let pixAberto = null; // { id, valor, pix: { copiaECola, qrBase64 } } enquanto o Pix aguarda pagamento
@@ -70,7 +71,7 @@ const RECEBEDOR = '36.348.714 CAMILLA IZEKI MARTINS';
 
 const dataBR = (iso) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 const faltam = (n) => (n === 1 ? 'falta 1 dia' : `faltam ${n} dias`);
-const NOME_PLANO = { mensal: 'mensal', anual: 'anual', teste: 'de teste' };
+const NOME_PLANO = { mensal: 'mensal', trimestral: 'trimestral', semestral: 'semestral', anual: 'anual', teste: 'de teste' };
 
 export function textoSituacao(a) {
   if (a.situacao === 'teste') return a.diasRestantes ? `Teste grátis: ${faltam(a.diasRestantes)}.` : 'Seu teste grátis termina hoje.';
@@ -81,46 +82,156 @@ export function textoSituacao(a) {
   return 'Sua conta está suspensa.';
 }
 
+// ---------- Renovação automática: cartão digitado no formulário seguro do Mercado Pago, dentro do app ----------
+
+let cartaoAberto = false;
+let telaCartaoNo = null; // a tela do cartão é montada uma vez: o formulário roda em iframes que não podem ser recriados
+let controleCartao = null;
+
+// O painel não deve redesenhar enquanto o formulário do cartão está aberto.
+export const ocupado = () => cartaoAberto;
+
+function carregarSdk() {
+  if (window.MercadoPago) return Promise.resolve();
+  return new Promise((ok, falha) => {
+    const script = document.createElement('script');
+    script.src = 'https://sdk.mercadopago.com/js/v2';
+    script.onload = ok;
+    script.onerror = () => falha(new Error('Não consegui carregar o formulário do cartão. Confira a internet e tente de novo, ou pague com Pix.'));
+    document.head.append(script);
+  });
+}
+
+function fecharCartao() {
+  try {
+    controleCartao?.unmount();
+  } catch { /* já fechado */ }
+  controleCartao = null;
+  telaCartaoNo = null;
+  cartaoAberto = false;
+}
+
+const periodo = (meses) => (meses === 1 ? 'por mês' : `a cada ${meses} meses`);
+
+function telaCartao(info, redesenhar, aoConfirmar) {
+  if (telaCartaoNo) return telaCartaoNo;
+  const t = info.planos[plano];
+  const escolhido = plano;
+  const aviso = el('p', { class: 'pequeno suave' }, 'Carregando o formulário seguro do Mercado Pago…');
+  const erro = el('p', { class: 'erro', role: 'alert', hidden: true });
+  const caixa = el('div', { id: 'cartao-mp' });
+  telaCartaoNo = el('div', { class: 'coluna', style: 'gap: 12px' },
+    el('div', { class: 'cartao' },
+      el('h3', {}, `${t.nome} com renovação automática`),
+      el('p', { class: 'pequeno suave' }, `${reais(t.cartao)} ${periodo(t.meses)}, cobrado sozinho no cartão de crédito. A primeira cobrança sai em até 1 hora. Cancele quando quiser na aba Conta.`)
+    ),
+    aviso,
+    caixa,
+    erro,
+    el('button', { class: 'link', onclick: () => { fecharCartao(); redesenhar(); } }, 'Voltar e escolher outra forma de pagamento')
+  );
+
+  // O formulário precisa da caixa já na tela.
+  setTimeout(async () => {
+    try {
+      await carregarSdk();
+      if (!telaCartaoNo) return;
+      const mp = new window.MercadoPago(info.chavePublica, { locale: 'pt-BR' });
+      controleCartao = await mp.bricks().create('cardPayment', 'cartao-mp', {
+        initialization: { amount: t.cartao / 100, payer: { email: info.email } },
+        customization: { paymentMethods: { maxInstallments: 1 } },
+        callbacks: {
+          onReady: () => { aviso.hidden = true; },
+          onError: (e) => {
+            console.error('Formulário do cartão', e);
+            aviso.hidden = true;
+          },
+          onSubmit: (dados) => new Promise((ok, falha) => {
+            erro.hidden = true;
+            api('assinatura/recorrente', 'POST', { plano: escolhido, token: dados.token })
+              .then((r) => {
+                ok();
+                fecharCartao();
+                aoConfirmar({
+                  status: 'aprovado',
+                  tipo: 'ok',
+                  texto: `Renovação automática ativada! A primeira cobrança de ${reais(r.recorrente.valor)} aparece no cartão em até 1 hora, e o acesso fica liberado.`,
+                });
+              })
+              .catch((e) => {
+                erro.textContent = e.message;
+                erro.hidden = false;
+                falha();
+              });
+          }),
+        },
+      });
+    } catch (e) {
+      aviso.hidden = true;
+      erro.textContent = e.message;
+      erro.hidden = false;
+    }
+  }, 0);
+  return telaCartaoNo;
+}
+
 // Escolha de plano e forma de pagamento. "redesenhar" atualiza a tela que contém o bloco.
-// "aoConfirmar" é chamado quando o Pix é aprovado com a tela aberta.
+// "aoConfirmar" é chamado quando o pagamento é aprovado com a tela aberta (Pix ou renovação automática).
 export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reload()) {
   ultimoRedesenhar = redesenhar;
   if (pixAberto) return telaPix(redesenhar);
+  if (cartaoAberto) return telaCartao(info, redesenhar, aoConfirmar);
   const t = info.planos;
-  const valor = t[plano][metodo];
+  const p = t[plano];
+  const jaTemRenovacao = ['ativa', 'pausada'].includes(info.recorrente?.status);
+  const podeRenovar = info.recorrenteDisponivel && !jaTemRenovacao;
+  if (!podeRenovar && modoCartao === 'recorrente') modoCartao = 'parcelado';
+  const metodo = forma === 'pix' ? 'pix' : modoCartao === 'recorrente' ? 'recorrente' : 'cartao';
   const escolherPlano = (id) => () => { plano = id; erroPlano = ''; redesenhar(); };
-  const escolherMetodo = (id) => () => { metodo = id; erroPlano = ''; redesenhar(); };
+  const escolher = (fn) => () => { fn(); erroPlano = ''; redesenhar(); };
 
-  const cartaoPlano = (id, titulo, precoTexto, linhas, selo) =>
-    el('button', { class: 'plano', type: 'button', 'aria-pressed': String(plano === id), onclick: escolherPlano(id) },
-      selo && el('span', { class: 'plano-selo' }, selo),
-      el('span', { class: 'plano-nome' }, titulo),
-      el('strong', { class: 'plano-preco' }, precoTexto),
-      ...linhas.map((l) => el('span', { class: 'pequeno suave' }, l))
+  const cartaoPlano = (id) => {
+    const x = t[id];
+    return el('button', { class: 'plano', type: 'button', 'aria-pressed': String(plano === id), onclick: escolherPlano(id) },
+      id === 'anual' && x.economia > 0 && el('span', { class: 'plano-selo' }, 'Melhor preço'),
+      el('span', { class: 'plano-nome' }, x.nome),
+      el('strong', { class: 'plano-preco' }, reais(x.cartao)),
+      el('span', { class: 'pequeno suave' }, x.meses === 1 ? 'por mês' : `${reais(x.porMes)}/mês`),
+      el('span', { class: 'pequeno suave' }, x.economia > 0 ? `economize ${reais(x.economia)}` : `${reais(x.pix)} no Pix`)
     );
+  };
 
   let resumo;
   if (metodo === 'pix') {
-    const economia = t[plano].cartao - t[plano].pix;
-    resumo = `Total no Pix: ${reais(t[plano].pix)}${economia > 0 ? ` (${t.descontoPix}% de desconto, ${reais(economia)} a menos)` : ''}. O código Pix aparece aqui mesmo, e o acesso libera assim que o banco confirmar.`;
-  } else if (plano === 'anual' && t.anual.parcelas > 1) {
-    resumo = `${reais(t.anual.cartao)} à vista ou em até ${t.anual.parcelas}x no cartão. Os juros do parcelamento ficam por conta de quem paga e aparecem antes de você confirmar.`;
+    const economia = p.cartao - p.pix;
+    resumo = `Total no Pix: ${reais(p.pix)}${economia > 0 ? ` (${t.descontoPix}% de desconto, ${reais(economia)} a menos)` : ''}. O código Pix aparece aqui mesmo, e o acesso libera assim que o banco confirmar. Sem renovação automática.`;
+  } else if (metodo === 'recorrente') {
+    resumo = `${reais(p.cartao)} ${periodo(p.meses)}, cobrado sozinho no cartão de crédito, sem parcelas e sem juros. Cancele quando quiser na aba Conta.`;
+  } else if (p.parcelas > 1) {
+    resumo = `${reais(p.cartao)} à vista ou em até ${p.parcelas}x. Os juros do parcelamento ficam por conta de quem paga e aparecem antes de você confirmar. Sem renovação automática.`;
   } else {
-    resumo = `${reais(t[plano].cartao)} no cartão, à vista.`;
+    resumo = `${reais(p.cartao)} no cartão, à vista, sem renovação automática.`;
   }
 
+  const rodape = {
+    pix: 'Pix processado pelo Mercado Pago. Você renova quando quiser, e os dias que ainda restam continuam valendo.',
+    recorrente: 'Os dados do cartão são digitados no formulário seguro do Mercado Pago, aqui mesmo no app, sem precisar de conta lá.',
+    cartao: 'O cartão é pago na página segura do Mercado Pago, sem precisar de conta lá: basta preencher os dados do cartão.',
+  }[metodo];
+
   return el('div', { class: 'coluna', style: 'gap: 14px' },
-    el('div', { class: 'planos' },
-      cartaoPlano('mensal', 'Mensal', reais(t.mensal.cartao), [`por mês`, `${reais(t.mensal.pix)} no Pix`]),
-      cartaoPlano('anual', 'Anual', reais(t.anual.cartao), [`por ano, ${reais(t.anual.porMes)}/mês`, t.anual.parcelas > 1 ? `até ${t.anual.parcelas}x no cartão` : `${reais(t.anual.pix)} no Pix`],
-        t.anual.economia > 0 ? `Economize ${reais(t.anual.economia)}` : null)
-    ),
+    el('div', { class: 'planos' }, (t.ordem || ['mensal', 'anual']).map(cartaoPlano)),
     el('fieldset', { class: 'pergunta' },
       el('legend', {}, 'Forma de pagamento'),
       el('div', { class: 'opcoes' },
-        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(metodo === 'pix'), onclick: escolherMetodo('pix') }, t.descontoPix ? `Pix · ${t.descontoPix}% off` : 'Pix'),
-        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(metodo === 'cartao'), onclick: escolherMetodo('cartao') }, 'Cartão')
+        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(forma === 'pix'), onclick: escolher(() => { forma = 'pix'; }) }, t.descontoPix ? `Pix · ${t.descontoPix}% off` : 'Pix'),
+        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(forma === 'cartao'), onclick: escolher(() => { forma = 'cartao'; }) }, 'Cartão')
       ),
+      forma === 'cartao' && podeRenovar && el('div', { class: 'opcoes' },
+        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(modoCartao === 'recorrente'), onclick: escolher(() => { modoCartao = 'recorrente'; }) }, 'Renovação automática'),
+        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(modoCartao === 'parcelado'), onclick: escolher(() => { modoCartao = 'parcelado'; }) }, p.parcelas > 1 ? `Parcelado até ${p.parcelas}x` : 'Só este período')
+      ),
+      forma === 'cartao' && jaTemRenovacao && el('p', { class: 'pequeno suave' }, 'Você já tem renovação automática ativa. Para trocar de plano, cancele na aba Conta.'),
       el('p', { class: 'pequeno suave' }, resumo)
     ),
     !info.configurado && el('p', { class: 'aviso' }, `O pagamento pelo app está sendo ativado. Enquanto isso, fale com a gente: ${SUPORTE}.`),
@@ -129,6 +240,11 @@ export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reloa
       class: 'botao',
       disabled: enviando || !info.configurado,
       onclick: async () => {
+        if (metodo === 'recorrente') {
+          cartaoAberto = true;
+          redesenhar();
+          return;
+        }
         enviando = true;
         erroPlano = '';
         redesenhar();
@@ -148,10 +264,47 @@ export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reloa
           redesenhar();
         }
       },
-    }, enviando ? (metodo === 'pix' ? 'Gerando o Pix…' : 'Abrindo o pagamento…') : metodo === 'pix' ? `Gerar Pix de ${reais(valor)}` : 'Pagar com cartão'),
-    el('p', { class: 'pequeno suave centro' }, metodo === 'pix'
-      ? 'Pix processado pelo Mercado Pago. Sem renovação automática: você renova quando quiser, e os dias que ainda restam continuam valendo.'
-      : 'O cartão é pago na página segura do Mercado Pago, sem precisar de conta lá: basta preencher os dados do cartão. Sem renovação automática.')
+    }, enviando
+      ? (metodo === 'pix' ? 'Gerando o Pix…' : 'Abrindo o pagamento…')
+      : metodo === 'pix' ? `Gerar Pix de ${reais(p.pix)}` : metodo === 'recorrente' ? 'Continuar com o cartão' : 'Pagar com cartão'),
+    el('p', { class: 'pequeno suave centro' }, rodape)
+  );
+}
+
+// Cartão da aba Conta: mostra a renovação automática e deixa cancelar (dois toques, para evitar engano).
+let confirmarCancelamento = false;
+let cancelando = false;
+export function blocoRenovacao(info, aoMudar) {
+  const r = info?.recorrente;
+  if (!r || !['ativa', 'pausada'].includes(r.status)) return null;
+  const t = info.planos[r.plano] || { nome: r.plano, meses: 1 };
+  return el('div', { class: 'cartao' },
+    el('h3', {}, 'Renovação automática'),
+    r.status === 'ativa'
+      ? el('p', { class: 'pequeno suave' }, `${t.nome}: ${reais(r.valor)} ${periodo(t.meses)} no cartão.${r.proximaCobranca ? ` Próxima cobrança em ${dataBR(r.proximaCobranca)}.` : ''}`)
+      : el('p', { class: 'erro' }, 'O Mercado Pago pausou a renovação depois de cobranças recusadas. Cancele e ative de novo com outro cartão, ou pague com Pix.'),
+    el('button', {
+      class: 'botao claro menor',
+      disabled: cancelando,
+      onclick: async () => {
+        if (!confirmarCancelamento) {
+          confirmarCancelamento = true;
+          aoMudar(null);
+          return;
+        }
+        cancelando = true;
+        aoMudar(null);
+        try {
+          const x = await api('assinatura/recorrente/cancelar', 'POST', {});
+          aoMudar({ tipo: 'ok', texto: `Renovação automática cancelada. Seu acesso continua até ${dataBR(x.assinatura.acessoAte)}.` });
+        } catch (e) {
+          aoMudar({ tipo: 'erro', texto: e.message });
+        } finally {
+          cancelando = false;
+          confirmarCancelamento = false;
+        }
+      },
+    }, cancelando ? 'Cancelando…' : confirmarCancelamento ? 'Toque de novo para confirmar o cancelamento' : 'Cancelar renovação automática')
   );
 }
 

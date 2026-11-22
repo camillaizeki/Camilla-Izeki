@@ -17,6 +17,10 @@ test('preços: Pix com 5% de desconto, anual parcelado e economia do anual', () 
   const t = tabelaPlanos(CONFIG_PADRAO);
   assert.equal(t.anual.parcelas, 12);
   assert.equal(t.mensal.parcelas, 1);
+  assert.deepEqual([t.trimestral.cartao, t.trimestral.pix, t.trimestral.parcelas, t.trimestral.porMes], [6790, 6451, 3, 2263]);
+  assert.deepEqual([t.semestral.cartao, t.semestral.pix, t.semestral.parcelas, t.semestral.porMes], [11990, 11391, 6, 1998]);
+  assert.equal(t.semestral.economia, 2490 * 6 - 11990);
+  assert.deepEqual(t.ordem, ['mensal', 'trimestral', 'semestral', 'anual']);
   assert.equal(t.anual.economia, 2490 * 12 - 19900);
   assert.throws(() => validarConfig({ ...CONFIG_PADRAO, descontoPix: 80 }));
 });
@@ -35,17 +39,17 @@ test('acesso: dias que sobram continuam valendo e meses curtos são respeitados'
   assert.equal(diasRestantes('2026-11-24T12:00:00Z', agora), 7);
 });
 
-test('checkout: Pix só aceita Pix; cartão parcela só no anual', () => {
+test('checkout: Pix só aceita Pix; cartão parcela até os meses do plano', () => {
   const personal = { id: 1, email: 'rafa@exemplo.com', nome: 'Rafa' };
-  const pix = montarPreferencia({ registro: { id: 9, plano: 'anual', metodo: 'pix', valor: 18905 }, personal, origem: 'https://app.exemplo', parcelasMax: 12 });
+  const pix = montarPreferencia({ registro: { id: 9, plano: 'anual', metodo: 'pix', valor: 18905 }, personal, origem: 'https://app.exemplo', parcelas: 12 });
   assert.equal(pix.items[0].unit_price, 189.05);
   assert.ok(pix.payment_methods.excluded_payment_types.some((t) => t.id === 'credit_card'));
   assert.equal(pix.external_reference, '9');
   assert.equal(pix.notification_url, 'https://app.exemplo/api/assinatura/webhook');
-  const anual = montarPreferencia({ registro: { id: 10, plano: 'anual', metodo: 'cartao', valor: 19900 }, personal, origem: 'https://app.exemplo', parcelasMax: 12 });
+  const anual = montarPreferencia({ registro: { id: 10, plano: 'anual', metodo: 'cartao', valor: 19900 }, personal, origem: 'https://app.exemplo', parcelas: 12 });
   assert.equal(anual.payment_methods.installments, 12);
   assert.ok(anual.payment_methods.excluded_payment_types.some((t) => t.id === 'bank_transfer'));
-  const mensal = montarPreferencia({ registro: { id: 11, plano: 'mensal', metodo: 'cartao', valor: 2490 }, personal, origem: 'http://localhost:8788', parcelasMax: 12 });
+  const mensal = montarPreferencia({ registro: { id: 11, plano: 'mensal', metodo: 'cartao', valor: 2490 }, personal, origem: 'http://localhost:8788', parcelas: 1 });
   assert.equal(mensal.payment_methods.installments, 1);
   assert.equal(mensal.notification_url, undefined); // sem https não há aviso
 });
@@ -249,10 +253,10 @@ test('teste grátis de 7 dias, trava, pagamento por Pix e cartão, e administra�
   assert.ok(r.corpo.usuario.diasRestantes >= 58);
 
   // Configuração: preço novo vale para os próximos pagamentos
-  r = await chamar('admin/config', 'PUT', { mensal: 2990, anual: 24900, diasTeste: 14, descontoPix: 10, parcelasMax: 6 }, 'admin');
+  r = await chamar('admin/config', 'PUT', { mensal: 2990, trimestral: 7990, semestral: 14990, anual: 24900, diasTeste: 14, descontoPix: 10, parcelasMax: 6 }, 'admin');
   assert.equal(r.status, 200);
   assert.equal(r.corpo.planos.mensal.pix, 2691);
-  assert.equal((await chamar('admin/config', 'PUT', { mensal: 0, anual: 1, diasTeste: 1, descontoPix: 1, parcelasMax: 1 }, 'admin')).status, 400);
+  assert.equal((await chamar('admin/config', 'PUT', { mensal: 0, trimestral: 1, semestral: 1, anual: 1, diasTeste: 1, descontoPix: 1, parcelasMax: 1 }, 'admin')).status, 400);
   r = await chamar('assinatura');
   assert.equal(r.corpo.planos.anual.parcelas, 6);
   r = await chamar('conta/criar', 'POST', { nome: 'Bia', email: 'bia@exemplo.com', senha: 'senha-forte-2', slug: 'bia' });

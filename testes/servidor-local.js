@@ -15,6 +15,7 @@ const env = {
 if (process.env.MP_SIMULADO) {
   const prefs = new Map();
   env.MP_ACCESS_TOKEN = 'APP_USR-simulado-local';
+  env.MP_PUBLIC_KEY = 'APP_USR-chave-publica-simulada';
   env.MP_FETCH = async (url, opcoes) => {
     const u = new URL(url);
     const responder = (d) => new Response(JSON.stringify(d), { headers: { 'content-type': 'application/json' } });
