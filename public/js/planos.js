@@ -3,7 +3,6 @@ import { api, el, reais, copiar } from './comum.js';
 
 let plano = 'anual';
 let forma = 'pix'; // pix | cartao
-let modoCartao = 'recorrente'; // recorrente | parcelado
 let enviando = false;
 let erroPlano = '';
 let pixAberto = null; // { id, valor, pix: { copiaECola, qrBase64 } } enquanto o Pix aguarda pagamento
@@ -111,7 +110,7 @@ function fecharCartao() {
   cartaoAberto = false;
 }
 
-const periodo = (meses) => (meses === 1 ? 'por mês' : `a cada ${meses} meses`);
+const periodo = (meses) => (meses === 1 ? 'por mês' : meses === 12 ? 'por ano' : `a cada ${meses} meses`);
 
 function telaCartao(info, redesenhar, aoConfirmar) {
   if (telaCartaoNo) return telaCartaoNo;
@@ -185,8 +184,9 @@ export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reloa
   const p = t[plano];
   const jaTemRenovacao = ['ativa', 'pausada'].includes(info.recorrente?.status);
   const podeRenovar = info.recorrenteDisponivel && !jaTemRenovacao;
-  if (!podeRenovar && modoCartao === 'recorrente') modoCartao = 'parcelado';
-  const metodo = forma === 'pix' ? 'pix' : modoCartao === 'recorrente' ? 'recorrente' : 'cartao';
+  // Cartão é sempre com renovação automática. O checkout parcelado do Mercado Pago só entra se a renovação
+  // não estiver disponível (chave pública ausente) ou se o personal já tiver uma renovação ativa.
+  const metodo = forma === 'pix' ? 'pix' : podeRenovar ? 'recorrente' : 'cartao';
   const escolherPlano = (id) => () => { plano = id; erroPlano = ''; redesenhar(); };
   const escolher = (fn) => () => { fn(); erroPlano = ''; redesenhar(); };
 
@@ -206,7 +206,7 @@ export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reloa
     const economia = p.cartao - p.pix;
     resumo = `Total no Pix: ${reais(p.pix)}${economia > 0 ? ` (${t.descontoPix}% de desconto, ${reais(economia)} a menos)` : ''}. O código Pix aparece aqui mesmo, e o acesso libera assim que o banco confirmar. Sem renovação automática.`;
   } else if (metodo === 'recorrente') {
-    resumo = `${reais(p.cartao)} ${periodo(p.meses)}, cobrado sozinho no cartão de crédito, sem parcelas e sem juros. Cancele quando quiser na aba Conta.`;
+    resumo = `${reais(p.cartao)} ${periodo(p.meses)} no cartão de crédito, com renovação automática. Cancele quando quiser na aba Conta do app.`;
   } else if (p.parcelas > 1) {
     resumo = `${reais(p.cartao)} à vista ou em até ${p.parcelas}x. Os juros do parcelamento ficam por conta de quem paga e aparecem antes de você confirmar. Sem renovação automática.`;
   } else {
@@ -226,10 +226,6 @@ export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reloa
       el('div', { class: 'opcoes' },
         el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(forma === 'pix'), onclick: escolher(() => { forma = 'pix'; }) }, t.descontoPix ? `Pix · ${t.descontoPix}% off` : 'Pix'),
         el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(forma === 'cartao'), onclick: escolher(() => { forma = 'cartao'; }) }, 'Cartão')
-      ),
-      forma === 'cartao' && podeRenovar && el('div', { class: 'opcoes' },
-        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(modoCartao === 'recorrente'), onclick: escolher(() => { modoCartao = 'recorrente'; }) }, 'Renovação automática'),
-        el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(modoCartao === 'parcelado'), onclick: escolher(() => { modoCartao = 'parcelado'; }) }, p.parcelas > 1 ? `Parcelado até ${p.parcelas}x` : 'Só este período')
       ),
       forma === 'cartao' && jaTemRenovacao && el('p', { class: 'pequeno suave' }, 'Você já tem renovação automática ativa. Para trocar de plano, cancele na aba Conta.'),
       el('p', { class: 'pequeno suave' }, resumo)
