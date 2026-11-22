@@ -1218,9 +1218,11 @@ function abaNovos() {
       el('p', { class: 'suave' }, 'Envie o link abaixo. O aluno preenche nome e WhatsApp, sem criar conta nem instalar nada, e o cadastro cai direto aqui, na sua lista.')
     ),
     el('div', { class: 'cartao', style: 'gap: 10px' },
-      etapa(1, 'Você envia o link pelo WhatsApp ou coloca na bio do Instagram.'),
-      etapa(2, dados.personal.anamneseAtiva ? 'O aluno abre, preenche nome e WhatsApp e responde uma anamnese rápida, de tocar.' : 'O aluno abre e preenche nome e WhatsApp.'),
-      etapa(3, 'Ele aparece logo abaixo. Você informa como ele paga (mensalidade ou pacote de aulas) e confirma.')
+      etapa(1, 'Compartilhe seu link pelo WhatsApp, na bio do Instagram ou onde preferir.'),
+      etapa(2, dados.personal.anamneseAtiva
+        ? 'O aluno se cadastra pelo celular, sem baixar nada, e responde a ficha de anamnese com poucos toques.'
+        : 'O aluno se cadastra pelo celular em menos de 1 minuto, sem baixar nada.'),
+      etapa(3, 'O cadastro chega aqui. Você escolhe se é mensalidade ou pacote de aulas e confirma.')
     ),
     el('div', { class: 'cartao escuro' },
       el('p', { class: 'pequeno suave' }, 'Seu link de convite (é o mesmo para todos os alunos)'),
@@ -1231,8 +1233,8 @@ function abaNovos() {
     el('div', { class: 'cartao' },
       el('h3', {}, 'Ficha de anamnese no cadastro'),
       el('p', { class: 'pequeno suave' }, dados.personal.anamneseAtiva
-        ? 'O aluno responde objetivos, rotina, saúde e jeito de treinar, em poucos toques, logo depois do nome e WhatsApp.'
-        : 'O aluno preenche só nome, WhatsApp e quando começou. Você pode ligar a anamnese quando quiser.'),
+        ? 'Você conhece os objetivos, a rotina, a saúde e o jeito de treinar de cada aluno antes da primeira aula.'
+        : 'O aluno preenche só os dados básicos. Ative a anamnese quando quiser.'),
       el('div', { class: 'opcoes' },
         [[true, 'Enviar anamnese'], [false, 'Só dados básicos']].map(([valor, rotulo]) =>
           el('button', {
