@@ -65,6 +65,7 @@ test('aviso do Mercado Pago com assinatura x-signature', async () => {
 
 const pagamentosMP = new Map(); // id -> pagamento do Mercado Pago
 const preferencias = [];
+const pixCriados = [];
 const resposta = (dados, status = 200) => new Response(JSON.stringify(dados), { status, headers: { 'content-type': 'application/json' } });
 
 const env = {
@@ -78,6 +79,13 @@ const env = {
       const pref = JSON.parse(opcoes.body);
       preferencias.push(pref);
       return resposta({ id: 'pref-' + pref.external_reference, init_point: 'https://mp.exemplo/checkout/' + pref.external_reference });
+    }
+    if (u.pathname === '/v1/payments' && opcoes.method === 'POST') {
+      const pag = JSON.parse(opcoes.body);
+      assert.ok(opcoes.headers['x-idempotency-key'], 'Pix exige chave de idempotência');
+      pixCriados.push(pag);
+      return resposta({ id: 7000 + pixCriados.length, status: 'pending', date_of_expiration: pag.date_of_expiration,
+        point_of_interaction: { transaction_data: { qr_code: '00020126PIXCOPIAECOLA' + pag.external_reference, qr_code_base64: 'iVBORw0KGgo=' } } });
     }
     if (u.pathname === '/v1/payments/search') {
       const ref = u.searchParams.get('external_reference');
@@ -132,12 +140,20 @@ test('teste grátis de 7 dias, trava, pagamento por Pix e cartão, e administra�
   assert.equal(r.corpo.planos.mensal.pix, 2366);
   assert.equal(r.corpo.configurado, true);
 
-  // Pix do plano mensal, com desconto
+  // Pix do plano mensal, com desconto: o código aparece no app, sem ir para o Mercado Pago
   r = await chamar('assinatura/checkout', 'POST', { plano: 'mensal', metodo: 'pix' });
   assert.equal(r.status, 200);
   const idPix = r.corpo.id;
-  assert.equal(r.corpo.url, 'https://mp.exemplo/checkout/' + idPix);
-  assert.equal(preferencias.at(-1).items[0].unit_price, 23.66);
+  assert.equal(r.corpo.url, undefined);
+  assert.equal(r.corpo.pix.copiaECola, '00020126PIXCOPIAECOLA' + idPix);
+  assert.equal(r.corpo.pix.qrBase64, 'iVBORw0KGgo=');
+  assert.equal(r.corpo.valor, 2366);
+  assert.equal(pixCriados.at(-1).transaction_amount, 23.66);
+  assert.equal(pixCriados.at(-1).payment_method_id, 'pix');
+  assert.equal(pixCriados.at(-1).external_reference, String(idPix));
+  assert.equal(pixCriados.at(-1).payer.email, 'rafa@exemplo.com');
+  assert.match(pixCriados.at(-1).date_of_expiration, /-03:00$/);
+  assert.equal(preferencias.length, 0); // nenhuma página do Mercado Pago no Pix
 
   // Aviso chega antes de pagar (pendente): continua travado
   pagamentosMP.set('5001', { id: 5001, external_reference: String(idPix), status: 'pending', transaction_amount: 23.66, currency_id: 'BRL' });
