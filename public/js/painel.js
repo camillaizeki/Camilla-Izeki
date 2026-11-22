@@ -1,7 +1,7 @@
 // Painel do personal: renovações, novos alunos, arte e conta.
 import { api, el, icone, campo, meses, reais, paraCentavos, copiar, montar, formatarWhats, mascararWhats } from './comum.js';
 import { iniciarInstalacao, avisoInstalar, secaoInstalar } from './instalar.js';
-import { blocoPlanos, textoSituacao, voltaDoCheckout, avisoPagamento, SUPORTE } from './planos.js';
+import { blocoPlanos, blocoRenovacao, textoSituacao, voltaDoCheckout, avisoPagamento, ocupado, SUPORTE } from './planos.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
 let aba = 'inicio';
@@ -1389,6 +1389,14 @@ function abaConta() {
       el('p', { class: 'pequeno suave' }, textoSituacao(p.assinatura)),
       p.assinatura.situacao !== 'cortesia' && el('button', { class: 'botao claro menor', onclick: abrirPlanos }, p.assinatura.situacao === 'teste' ? 'Ver planos' : 'Renovar ou trocar de plano')
     ),
+    blocoRenovacao(planos, async (msg) => {
+      if (msg) {
+        msgPagamento = msg;
+        await carregarPlanos();
+        await carregar();
+      }
+      desenhar();
+    }),
     el('div', { class: 'cartao' },
       el('h3', {}, 'Recuperação de senha'),
       el('p', { class: 'pequeno suave' }, p.temCodigo
@@ -1415,6 +1423,7 @@ async function trocarAba(id) {
   msgPagamento = null;
   desfazer = null;
   desenhar();
+  if (id === 'conta') carregarPlanos().then(() => { if (aba === 'conta' && !folha) desenhar(); });
   window.scrollTo(0, 0);
   try {
     await carregar();
@@ -1423,7 +1432,7 @@ async function trocarAba(id) {
 }
 
 document.addEventListener('visibilitychange', async () => {
-  if (document.visibilityState !== 'visible' || (!dados && !travado) || folha) return;
+  if (document.visibilityState !== 'visible' || (!dados && !travado) || folha || ocupado()) return;
   if (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
   try {
     await carregar();

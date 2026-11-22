@@ -5,9 +5,11 @@ import { situacaoPacote, pacotesComoRecebimentos, mesesComAula, precoAula } from
 import { calcular, fases, hojeBR, chaveMes, somaMes, mesesBase, marcoDe, dataISO } from '../lib/jornada.js';
 import {
   lerConfig, validarConfig, valorCobrado, tabelaPlanos, inicioDoTeste, estenderAcesso, situacaoDoAcesso, temAcesso,
-  assinaturaPublica, statusDoMP, mesBR, PLANOS, METODOS,
+  assinaturaPublica, statusDoMP, mesBR, PLANOS, METODOS, MESES_DO_PLANO, parcelasDoPlano,
 } from '../lib/assinatura.js';
-import { chamarMP, mpConfigurado, montarPreferencia, montarPix, dadosDoPix, linkDoCheckout, avisoAutentico, ErroMP } from '../lib/mercadopago.js';
+import {
+  chamarMP, mpConfigurado, montarPreferencia, montarPix, dadosDoPix, montarRecorrente, statusRecorrenteDoMP, linkDoCheckout, avisoAutentico, ErroMP,
+} from '../lib/mercadopago.js';
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
@@ -1047,7 +1049,108 @@ async function conferirNoMP(env, db, registro) {
   return (await registrarPagamentoMP(db, escolhido)) || registro;
 }
 
-async function rotasAssinatura(request, env, db, [b]) {
+// ---------- Renovação automática no cartão ----------
+// Status: criada, ativa, pausada (o Mercado Pago parou após falhas), cancelada, recusada (cartão não aceito).
+
+const recorrentePublica = (r) =>
+  r && { id: r.id, plano: r.plano, valor: r.valor, status: r.status, proximaCobranca: r.proxima_cobranca, criadoEm: r.criado_em, canceladoEm: r.cancelado_em };
+
+async function recorrenteAtual(db, personalId) {
+  return db
+    .prepare("SELECT * FROM assinaturas_recorrentes WHERE personal_id = ? AND status IN ('ativa', 'pausada') ORDER BY id DESC LIMIT 1")
+    .bind(personalId)
+    .first();
+}
+
+// Grava uma cobrança da renovação automática (uma vez por pagamento do Mercado Pago) e libera o período pago.
+async function registrarCobranca(db, rec, { pagamentoId, statusMP, valorBase, valorPago }) {
+  if (!pagamentoId || !statusMP) return null;
+  let status = statusDoMP(statusMP);
+  if (status === 'aprovado' && Math.round(Number(valorBase || 0) * 100) < rec.valor) status = 'divergente';
+  const agora = agoraISO();
+  const pago = Math.round(Number(valorPago ?? valorBase ?? 0) * 100) || null;
+  await db
+    .prepare(
+      "INSERT OR IGNORE INTO assinatura_pagamentos (personal_id, plano, metodo, valor, valor_pago, parcelas, status, mp_pagamento, recorrente_id, criado_em, atualizado_em) VALUES (?, ?, 'recorrente', ?, ?, 1, ?, ?, ?, ?, ?)"
+    )
+    .bind(rec.personal_id, rec.plano, rec.valor, pago, status, String(pagamentoId), rec.id, agora, agora)
+    .run();
+  const registro = await db.prepare('SELECT * FROM assinatura_pagamentos WHERE mp_pagamento = ? AND recorrente_id IS NOT NULL').bind(String(pagamentoId)).first();
+  if (!registro) return null;
+  if (registro.status !== status && (registro.status !== 'aprovado' || status === 'reembolsado')) {
+    await db.prepare('UPDATE assinatura_pagamentos SET status = ?, valor_pago = COALESCE(?, valor_pago), atualizado_em = ? WHERE id = ?').bind(status, pago, agora, registro.id).run();
+  }
+  if (status === 'aprovado') await liberarPagamento(db, registro);
+  return { ...registro, status };
+}
+
+async function atualizarRecorrente(db, pre) {
+  const ref = String(pre?.external_reference || '');
+  const rec = await db
+    .prepare('SELECT * FROM assinaturas_recorrentes WHERE mp_preapproval = ? OR id = ?')
+    .bind(String(pre?.id || '-'), ref.startsWith('rec-') ? Number(ref.slice(4)) : -1)
+    .first();
+  if (!rec) return null;
+  const status = statusRecorrenteDoMP(pre.status);
+  await db
+    .prepare('UPDATE assinaturas_recorrentes SET mp_preapproval = COALESCE(mp_preapproval, ?), status = ?, proxima_cobranca = ?, atualizado_em = ?, cancelado_em = COALESCE(cancelado_em, ?) WHERE id = ?')
+    .bind(String(pre.id), status, pre.next_payment_date || null, agoraISO(), status === 'cancelada' ? agoraISO() : null, rec.id)
+    .run();
+  return { ...rec, status };
+}
+
+// Cobrança vinda do aviso "subscription_authorized_payment".
+async function registrarCobrancaAutorizada(db, ap) {
+  const rec = await db.prepare('SELECT * FROM assinaturas_recorrentes WHERE mp_preapproval = ?').bind(String(ap?.preapproval_id || '-')).first();
+  if (!rec || !ap.payment?.id) return null;
+  return registrarCobranca(db, rec, { pagamentoId: ap.payment.id, statusMP: ap.payment.status, valorBase: ap.transaction_amount });
+}
+
+// Pagamento comum cujo external_reference é "rec-<id>" (o Mercado Pago repete a referência da assinatura).
+async function registrarPagamentoDeRecorrente(db, pag) {
+  const ref = String(pag?.external_reference || '');
+  if (!ref.startsWith('rec-')) return null;
+  const rec = await db.prepare('SELECT * FROM assinaturas_recorrentes WHERE id = ?').bind(Number(ref.slice(4))).first();
+  if (!rec) return null;
+  return registrarCobranca(db, rec, {
+    pagamentoId: pag.id,
+    statusMP: pag.status,
+    valorBase: pag.transaction_amount,
+    valorPago: pag.transaction_details?.total_paid_amount,
+  });
+}
+
+// Confere no Mercado Pago a assinatura e as cobranças dela, sem depender do aviso.
+async function conferirRecorrente(env, db, rec) {
+  if (!rec?.mp_preapproval || !mpConfigurado(env)) return rec;
+  const pre = await chamarMP(env, '/preapproval/' + rec.mp_preapproval);
+  await atualizarRecorrente(db, pre);
+  try {
+    const busca = await chamarMP(env, `/v1/payments/search?external_reference=rec-${rec.id}&sort=date_created&criteria=desc&limit=30`);
+    for (const pag of busca.results || []) await registrarPagamentoDeRecorrente(db, pag);
+  } catch (e) {
+    if (!(e instanceof ErroMP)) throw e;
+  }
+  try {
+    const busca = await chamarMP(env, `/authorized_payments/search?preapproval_id=${rec.mp_preapproval}`);
+    for (const ap of busca.results || []) await registrarCobrancaAutorizada(db, ap);
+  } catch (e) {
+    if (!(e instanceof ErroMP)) throw e;
+  }
+  return db.prepare('SELECT * FROM assinaturas_recorrentes WHERE id = ?').bind(rec.id).first();
+}
+
+async function cancelarRecorrente(env, db, rec) {
+  if (rec.mp_preapproval && mpConfigurado(env)) {
+    await chamarMP(env, '/preapproval/' + rec.mp_preapproval, { metodo: 'PUT', corpo: { status: 'cancelled' } });
+  }
+  await db
+    .prepare("UPDATE assinaturas_recorrentes SET status = 'cancelada', cancelado_em = ?, atualizado_em = ? WHERE id = ?")
+    .bind(agoraISO(), agoraISO(), rec.id)
+    .run();
+}
+
+async function rotasAssinatura(request, env, db, [b, c]) {
   const metodo = request.method;
 
   // Aviso do Mercado Pago (público). O conteúdo do aviso nunca é usado: o pagamento é buscado lá.
@@ -1061,9 +1164,21 @@ async function rotasAssinatura(request, env, db, [b]) {
     }
     const tipo = d.type || d.topic || url.searchParams.get('type') || url.searchParams.get('topic');
     const id = String(d.data?.id || url.searchParams.get('data.id') || url.searchParams.get('id') || '');
-    if (tipo !== 'payment' || !/^\d{1,30}$/.test(id)) return json({ ok: true });
+    const tipos = {
+      payment: /^\d{1,30}$/,
+      subscription_preapproval: /^[a-z0-9]{1,64}$/i,
+      subscription_authorized_payment: /^\d{1,30}$/,
+    };
+    if (!tipos[tipo] || !tipos[tipo].test(id)) return json({ ok: true });
     if (!(await avisoAutentico(env, request, url.searchParams.get('data.id') || id))) throw new Falha('Aviso não reconhecido.', 401);
-    await registrarPagamentoMP(db, await chamarMP(env, '/v1/payments/' + id));
+    if (tipo === 'payment') {
+      const pag = await chamarMP(env, '/v1/payments/' + id);
+      if (!(await registrarPagamentoDeRecorrente(db, pag))) await registrarPagamentoMP(db, pag);
+    } else if (tipo === 'subscription_preapproval') {
+      await atualizarRecorrente(db, await chamarMP(env, '/preapproval/' + id));
+    } else {
+      await registrarCobrancaAutorizada(db, await chamarMP(env, '/authorized_payments/' + id));
+    }
     return json({ ok: true });
   }
 
@@ -1074,11 +1189,17 @@ async function rotasAssinatura(request, env, db, [b]) {
     const lista = (
       await db.prepare("SELECT * FROM assinatura_pagamentos WHERE personal_id = ? AND status != 'aguardando' ORDER BY id DESC LIMIT 12").bind(p.id).all()
     ).results || [];
+    const rec = await db.prepare('SELECT * FROM assinaturas_recorrentes WHERE personal_id = ? AND status != ? ORDER BY id DESC LIMIT 1').bind(p.id, 'recusada').first();
     return json({
       nome: p.nome,
+      email: p.email,
       assinatura: assinaturaPublica(p),
       planos: tabelaPlanos(config),
       configurado: mpConfigurado(env),
+      // Renovação automática: precisa da chave pública do Mercado Pago para o formulário de cartão no app.
+      recorrenteDisponivel: mpConfigurado(env) && !!env.MP_PUBLIC_KEY,
+      chavePublica: env.MP_PUBLIC_KEY || null,
+      recorrente: recorrentePublica(rec),
       pagamentos: lista.map(pagamentoPublico),
     });
   }
@@ -1112,11 +1233,65 @@ async function rotasAssinatura(request, env, db, [b]) {
     // Cartão: checkout do Mercado Pago, onde dá para pagar sem conta, só com os dados do cartão.
     const pref = await chamarMP(env, '/checkout/preferences', {
       metodo: 'POST',
-      corpo: montarPreferencia({ registro, personal: p, origem, parcelasMax: config.parcelasMax }),
+      corpo: montarPreferencia({ registro, personal: p, origem, parcelas: parcelasDoPlano(config, d.plano) }),
       idempotencia: 'renova-pref-' + registro.id,
     });
     await db.prepare('UPDATE assinatura_pagamentos SET mp_preferencia = ? WHERE id = ?').bind(String(pref.id || ''), registro.id).run();
     return json({ id: registro.id, url: linkDoCheckout(env, pref) });
+  }
+
+  // Renovação automática: o app manda o token do cartão (gerado pelo formulário do Mercado Pago na tela).
+  if (b === 'recorrente' && !c && metodo === 'POST') {
+    if (p.bloqueado) throw new Falha('Sua conta está suspensa. Fale com o suporte.', 403);
+    if (p.cortesia) throw new Falha('Seu acesso já está liberado, sem custo.');
+    if (!mpConfigurado(env) || !env.MP_PUBLIC_KEY) throw new Falha('A renovação automática ainda está sendo configurada. Use o Pix ou o cartão parcelado.', 503);
+    const d = await corpo(request);
+    if (!PLANOS.includes(d.plano)) throw new Falha('Escolha um plano.');
+    const token = String(d.token || '');
+    if (!/^[a-zA-Z0-9]{8,64}$/.test(token)) throw new Falha('Confira os dados do cartão.');
+    if (await recorrenteAtual(db, p.id)) throw new Falha('Você já tem renovação automática ativa. Cancele na aba Conta antes de trocar de plano.');
+    const agora = agoraISO();
+    const r = await db
+      .prepare("INSERT INTO assinaturas_recorrentes (personal_id, plano, valor, status, criado_em, atualizado_em) VALUES (?, ?, ?, 'criada', ?, ?)")
+      .bind(p.id, d.plano, config[d.plano], agora, agora)
+      .run();
+    const recorrente = { id: r.meta.last_row_id, plano: d.plano, valor: config[d.plano] };
+    let pre;
+    try {
+      pre = await chamarMP(env, '/preapproval', {
+        metodo: 'POST',
+        corpo: montarRecorrente({ recorrente, personal: p, origem: new URL(request.url).origin, token, meses: MESES_DO_PLANO[d.plano] }),
+        idempotencia: 'renova-rec-' + recorrente.id,
+      });
+    } catch (e) {
+      await db.prepare("UPDATE assinaturas_recorrentes SET status = 'recusada', atualizado_em = ? WHERE id = ?").bind(agoraISO(), recorrente.id).run();
+      if (e instanceof ErroMP && e.mpStatus >= 400 && e.mpStatus < 500) {
+        throw new Falha('O cartão não foi aceito para cobrança automática. Confira os dados, use outro cartão de crédito ou pague com Pix.');
+      }
+      throw e;
+    }
+    await atualizarRecorrente(db, { ...pre, external_reference: 'rec-' + recorrente.id });
+    // A primeira cobrança sai em até 1 hora. Se o painel estiver travado, libera 1 dia enquanto isso.
+    if (!temAcesso(p) && statusRecorrenteDoMP(pre.status) === 'ativa') {
+      await db.prepare('UPDATE personais SET acesso_ate = ? WHERE id = ?').bind(new Date(Date.now() + DIA_MS).toISOString(), p.id).run();
+    }
+    const depois = await db.prepare('SELECT * FROM personais WHERE id = ?').bind(p.id).first();
+    const rec = await db.prepare('SELECT * FROM assinaturas_recorrentes WHERE id = ?').bind(recorrente.id).first();
+    return json({ recorrente: recorrentePublica(rec), assinatura: assinaturaPublica(depois) });
+  }
+
+  if (b === 'recorrente' && c === 'cancelar' && metodo === 'POST') {
+    const rec = await recorrenteAtual(db, p.id);
+    if (!rec) throw new Falha('Você não tem renovação automática ativa.');
+    await cancelarRecorrente(env, db, rec);
+    return json({ ok: true, assinatura: assinaturaPublica(p) });
+  }
+
+  if (b === 'recorrente' && c === 'verificar' && metodo === 'POST') {
+    const rec = await db.prepare('SELECT * FROM assinaturas_recorrentes WHERE personal_id = ? ORDER BY id DESC LIMIT 1').bind(p.id).first();
+    const atualizada = rec ? await conferirRecorrente(env, db, rec) : null;
+    const depois = await db.prepare('SELECT * FROM personais WHERE id = ?').bind(p.id).first();
+    return json({ recorrente: recorrentePublica(atualizada), assinatura: assinaturaPublica(depois) });
   }
 
   // Volta do checkout: confere na hora, sem esperar o aviso do Mercado Pago.
@@ -1157,7 +1332,9 @@ async function listarUsuarios(db, id = null) {
       'SELECT p.id, p.nome, p.email, p.slug, p.criado_em, p.plano, p.acesso_ate, p.cortesia, p.bloqueado, ' +
         "(SELECT COUNT(*) FROM alunos al WHERE al.personal_id = p.id AND al.status != 'inativo') AS alunos, " +
         "(SELECT COALESCE(SUM(g.valor), 0) FROM assinatura_pagamentos g WHERE g.personal_id = p.id AND g.status = 'aprovado') AS total_pago, " +
-        "(SELECT MAX(g.aprovado_em) FROM assinatura_pagamentos g WHERE g.personal_id = p.id AND g.status = 'aprovado') AS ultimo_pagamento " +
+        "(SELECT MAX(g.aprovado_em) FROM assinatura_pagamentos g WHERE g.personal_id = p.id AND g.status = 'aprovado') AS ultimo_pagamento, " +
+        "(SELECT r.status FROM assinaturas_recorrentes r WHERE r.personal_id = p.id AND r.status IN ('ativa', 'pausada') ORDER BY r.id DESC LIMIT 1) AS renovacao, " +
+        "(SELECT r.proxima_cobranca FROM assinaturas_recorrentes r WHERE r.personal_id = p.id AND r.status IN ('ativa', 'pausada') ORDER BY r.id DESC LIMIT 1) AS proxima_cobranca " +
         `FROM personais p ${id ? 'WHERE p.id = ?' : ''} ORDER BY p.criado_em DESC`
     )
     .bind(...(id ? [id] : []))
@@ -1174,6 +1351,8 @@ async function listarUsuarios(db, id = null) {
     ultimoPagamento: u.ultimo_pagamento,
     cortesia: !!u.cortesia,
     bloqueado: !!u.bloqueado,
+    renovacao: u.renovacao || null, // renovação automática: 'ativa', 'pausada' ou null
+    proximaCobranca: u.proxima_cobranca || null,
     ...assinaturaPublica(u, agora),
   }));
 }
@@ -1183,8 +1362,9 @@ async function resumoAdmin(env, db, config) {
   const agora = new Date();
   const conta = (s) => usuarios.filter((u) => u.situacao === s).length;
   const ativos = usuarios.filter((u) => u.situacao === 'ativa');
-  const mensais = ativos.filter((u) => u.plano === 'mensal').length;
-  const anuais = ativos.filter((u) => u.plano === 'anual').length;
+  const porPlano = Object.fromEntries(PLANOS.map((pl) => [pl, ativos.filter((u) => u.plano === pl).length]));
+  const mensais = porPlano.mensal;
+  const anuais = porPlano.anual;
   const pags = (await db.prepare("SELECT metodo, valor, status, aprovado_em, criado_em FROM assinatura_pagamentos WHERE status != 'aguardando'").all()).results || [];
   const aprovados = pags.filter((g) => g.status === 'aprovado');
   const mesAgora = mesBR(agora.toISOString());
@@ -1195,7 +1375,7 @@ async function resumoAdmin(env, db, config) {
     serie.push({ mes, rotulo: rotuloMes(mes), valor: doMes.reduce((t, g) => t + g.valor, 0), quantidade: doMes.length });
   }
   const doMesAtual = aprovados.filter((g) => mesBR(g.aprovado_em || g.criado_em) === mesAgora);
-  const porMetodo = Object.fromEntries(['pix', 'cartao', 'manual'].map((m) => [m, doMesAtual.filter((g) => g.metodo === m).reduce((t, g) => t + g.valor, 0)]));
+  const porMetodo = Object.fromEntries(['pix', 'cartao', 'recorrente', 'manual'].map((m) => [m, doMesAtual.filter((g) => g.metodo === m).reduce((t, g) => t + g.valor, 0)]));
   const pagantes = usuarios.filter((u) => u.totalPago > 0).length;
   const encerrados = conta('teste_encerrado');
   const limite30 = new Date(agora.getTime() - 30 * DIA_MS).toISOString();
@@ -1211,8 +1391,8 @@ async function resumoAdmin(env, db, config) {
       novos30: usuarios.filter((u) => u.criadoEm >= limite30).length,
       pagantes,
     },
-    assinantes: { mensais, anuais },
-    mrr: mensais * config.mensal + anuais * Math.round(config.anual / 12),
+    assinantes: { mensais, anuais, porPlano, renovacaoAutomatica: ativos.filter((u) => u.renovacao === 'ativa').length },
+    mrr: PLANOS.reduce((t, pl) => t + porPlano[pl] * Math.round(config[pl] / MESES_DO_PLANO[pl]), 0),
     receita: {
       mes: serie[11].valor,
       mesAnterior: serie[10].valor,
@@ -1291,6 +1471,14 @@ async function rotasAdmin(request, env, db, [b, c, d4]) {
         await db.prepare('UPDATE personais SET cortesia = ? WHERE id = ?').bind(d.ativa ? 1 : 0, u.id).run();
       } else if (d.acao === 'bloquear') {
         await db.prepare('UPDATE personais SET bloqueado = ? WHERE id = ?').bind(d.ativo ? 1 : 0, u.id).run();
+      } else if (d.acao === 'cancelarRenovacao') {
+        const rec = await recorrenteAtual(db, u.id);
+        if (!rec) throw new Falha('Este usuário não tem renovação automática ativa.');
+        await cancelarRecorrente(env, db, rec);
+      } else if (d.acao === 'conferirRenovacao') {
+        const rec = await db.prepare('SELECT * FROM assinaturas_recorrentes WHERE personal_id = ? ORDER BY id DESC LIMIT 1').bind(u.id).first();
+        if (!rec) throw new Falha('Este usuário nunca ativou a renovação automática.');
+        await conferirRecorrente(env, db, rec);
       } else throw new Falha('Ação desconhecida.');
       return json({ usuario: (await listarUsuarios(db, u.id))[0] });
     }
@@ -1344,10 +1532,10 @@ async function rotasAdmin(request, env, db, [b, c, d4]) {
         .prepare("INSERT INTO meta (chave, valor) VALUES ('config_assinatura', ?) ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor")
         .bind(JSON.stringify(nova))
         .run();
-      return json({ config: nova, planos: tabelaPlanos(nova), configurado: mpConfigurado(env), avisoProtegido: !!env.MP_WEBHOOK_SECRET });
+      return json({ config: nova, planos: tabelaPlanos(nova), configurado: mpConfigurado(env), avisoProtegido: !!env.MP_WEBHOOK_SECRET, chavePublica: !!env.MP_PUBLIC_KEY });
     }
     if (metodo === 'GET') {
-      return json({ config, planos: tabelaPlanos(config), configurado: mpConfigurado(env), avisoProtegido: !!env.MP_WEBHOOK_SECRET });
+      return json({ config, planos: tabelaPlanos(config), configurado: mpConfigurado(env), avisoProtegido: !!env.MP_WEBHOOK_SECRET, chavePublica: !!env.MP_PUBLIC_KEY });
     }
   }
 

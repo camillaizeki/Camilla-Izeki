@@ -20,7 +20,7 @@ O personal acompanha tudo em um painel e envia lembretes pelo próprio WhatsApp.
 - **IA:** sugere frases para a arte e reescreve o lembrete. O personal sempre aprova antes.
 - **App na tela de início:** o painel é um PWA. No celular, o personal vê um aviso para colocar o Renova.AI na tela de início. No Android há um botão de instalar; no iPhone, o passo a passo do Safari. Nada passa pela App Store ou pelo Google Play. O "Agora não" esconde o aviso por 7 dias, e a opção continua na aba Conta.
 
-- **Assinatura do app:** cada personal ganha 7 dias de teste grátis. Depois, o painel trava e mostra os planos: mensal (R$ 24,90) ou anual (R$ 199,00), com 5% de desconto no Pix. No cartão, o anual parcela em até 12x, com os juros do parcelamento por conta de quem paga. O pagamento passa pelo Mercado Pago e libera o acesso sozinho. Não há renovação automática: o app avisa nos últimos 5 dias e os dias que ainda restam são somados. Com o painel travado, os alunos e os links continuam funcionando.
+- **Assinatura do app:** cada personal ganha 7 dias de teste grátis. Depois, o painel trava e mostra os planos: mensal (R$ 24,90), trimestral (R$ 67,90), semestral (R$ 119,90) ou anual (R$ 199,00), com 5% de desconto no Pix. O Pix aparece na tela do app (QR Code e copia e cola). No cartão, o personal escolhe entre renovação automática (cartão digitado no formulário seguro do Mercado Pago dentro do app, cobrado de novo a cada período até cancelar na aba Conta) ou parcelado sem renovação (até o número de meses do plano, juros por conta de quem paga). O acesso libera sozinho e os dias que ainda restam são somados. Com o painel travado, os alunos e os links continuam funcionando.
 - **Administração (`/admin`):** resumo com receita do mês, receita recorrente, conversão do teste e gráfico de 12 meses; lista de usuários com situação, alunos e total pago; ajustes de acesso (somar dias, data final, cortesia, suspender), pagamento recebido por fora, código de recuperação de senha; lista de pagamentos com conferência no Mercado Pago; e configuração de preços, dias de teste, desconto no Pix e parcelas.
 
 O pagamento entre aluno e personal continua fora do app (Pix direto). Só a assinatura do personal passa pelo Mercado Pago.
@@ -40,9 +40,10 @@ Opcional: a variável `AI_MODEL` define o modelo de IA preferido. Sem ela, o app
 1. Crie uma conta no Mercado Pago e, em *Suas integrações*, crie uma aplicação (Checkout Pro).
 2. Copie o **Access Token de produção** e cadastre na Cloudflare como segredo `MP_ACCESS_TOKEN`
    (*Settings > Variables and Secrets*, tipo *Secret*). Um token de teste (`TEST-...`) abre o ambiente de testes.
-3. Em *Webhooks* da aplicação, cadastre `https://SEU-ENDERECO/api/assinatura/webhook` com o evento **Pagamentos**.
+3. Em *Webhooks* da aplicação, cadastre `https://SEU-ENDERECO/api/assinatura/webhook` com os eventos **Pagamentos (legacy)** e **Planos e assinaturas**.
    Opcional: copie a assinatura secreta e cadastre como segredo `MP_WEBHOOK_SECRET`.
-4. Deixe o "parcelamento sem juros" desligado na conta: assim os juros das parcelas ficam com quem paga.
+4. Para a renovação automática, cadastre também a **Public Key de produção** como `MP_PUBLIC_KEY`. Sem ela, a opção fica escondida.
+5. Deixe o "parcelamento sem juros" desligado na conta: assim os juros das parcelas ficam com quem paga.
 
 Sem o token, o app mostra os planos com o aviso de que o pagamento está sendo ativado. A administração pode liberar acesso
 manualmente (cortesia, dias extras ou pagamento recebido por fora). Ao publicar esta versão, quem já tinha conta ganha 7 dias de teste

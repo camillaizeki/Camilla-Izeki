@@ -34,8 +34,8 @@ const STATUS = {
   reembolsado: ['forte', 'Devolvido'],
   divergente: ['forte', 'Conferir valor'],
 };
-const METODO = { pix: 'Pix', cartao: 'Cartão', manual: 'Manual' };
-const PLANO = { mensal: 'Mensal', anual: 'Anual', teste: 'Teste' };
+const METODO = { pix: 'Pix', cartao: 'Cartão', recorrente: 'Cartão automático', manual: 'Manual' };
+const PLANO = { mensal: 'Mensal', trimestral: 'Trimestral', semestral: 'Semestral', anual: 'Anual', teste: 'Teste' };
 
 const chip = ([cor, texto]) => el('span', { class: 'chip ' + cor }, texto);
 const dataBR = (iso) => (iso ? new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '—');
@@ -170,11 +170,12 @@ function abaResumo() {
       el('p', { class: 'suave' }, 'Recebido neste mês'),
       el('p', { class: 'grande' }, reais(r.receita.mes)),
       el('p', { class: 'pequeno suave' }, `Mês passado: ${reais(r.receita.mesAnterior)}${r.receita.mesAnterior ? ` (${dif >= 0 ? '+' : '−'}${reais(Math.abs(dif))})` : ''}. Total desde o início: ${reais(r.receita.total)}.`),
-      el('p', { class: 'pequeno suave' }, `Receita recorrente estimada: ${reais(r.mrr)}/mês (${r.assinantes.mensais} mensais e ${r.assinantes.anuais} anuais).`)
+      el('p', { class: 'pequeno suave' }, `Receita recorrente estimada: ${reais(r.mrr)}/mês. Assinantes: ${['mensal', 'trimestral', 'semestral', 'anual'].map((pl) => `${r.assinantes.porPlano?.[pl] || 0} ${PLANO[pl].toLowerCase()}`).join(', ')}. ${r.assinantes.renovacaoAutomatica || 0} com renovação automática.`)
     ),
     el('div', { class: 'grade-numeros' },
       numero('Pix no mês', reais(r.receita.porMetodo.pix)),
       numero('Cartão no mês', reais(r.receita.porMetodo.cartao)),
+      numero('Cartão automático no mês', reais(r.receita.porMetodo.recorrente || 0)),
       numero('Manual no mês', reais(r.receita.porMetodo.manual)),
       numero('Conversão do teste', r.conversao == null ? '—' : r.conversao + '%', null, 'Dos que terminaram o teste, quantos pagaram')
     ),
@@ -294,7 +295,7 @@ function detalheUsuario() {
   if (!u) return el('p', { class: 'suave' }, 'Usuário não encontrado.');
   const acao = (dados, mensagem) => agir(() => api(`admin/usuarios/${u.id}`, 'PUT', dados), mensagem);
   const seus = (pagamentos || []).filter((g) => g.personal?.id === u.id);
-  const plano = el('select', { id: 'plano-manual', name: 'plano' }, el('option', { value: 'mensal' }, 'Mensal'), el('option', { value: 'anual' }, 'Anual'));
+  const plano = el('select', { id: 'plano-manual', name: 'plano' }, ['mensal', 'trimestral', 'semestral', 'anual'].map((pl) => el('option', { value: pl }, PLANO[pl])));
   const valorManual = el('input', { id: 'valor-manual', name: 'valor', inputmode: 'decimal', value: config ? paraCampo(config.config.mensal) : '24,90' });
   plano.addEventListener('change', () => {
     if (config) valorManual.value = paraCampo(config.config[plano.value]);
@@ -310,6 +311,7 @@ function detalheUsuario() {
     el('div', { class: 'grade-numeros' },
       numero('Plano', u.situacao === 'cortesia' ? 'Cortesia' : PLANO[u.plano] || u.plano),
       numero('Acesso até', u.situacao === 'cortesia' ? 'Sem prazo' : dataBR(u.acessoAte)),
+      numero('Renovação automática', u.renovacao === 'ativa' ? `Ativa${u.proximaCobranca ? ' · ' + dataBR(u.proximaCobranca) : ''}` : u.renovacao === 'pausada' ? 'Pausada' : 'Não'),
       numero('Dias restantes', u.situacao === 'cortesia' ? '—' : String(u.diasRestantes)),
       numero('Alunos', String(u.alunos)),
       numero('Total pago', reais(u.totalPago)),
@@ -322,7 +324,9 @@ function detalheUsuario() {
         el('button', { class: 'botao claro menor', onclick: () => acao({ acao: 'dias', dias: 7 }, '7 dias acrescentados.') }, '+7 dias'),
         el('button', { class: 'botao claro menor', onclick: () => acao({ acao: 'dias', dias: 30 }, '30 dias acrescentados.') }, '+30 dias'),
         el('button', { class: 'botao claro menor', onclick: () => acao({ acao: 'cortesia', ativa: !u.cortesia }, u.cortesia ? 'Cortesia removida.' : 'Acesso liberado sem prazo.') }, u.cortesia ? 'Tirar cortesia' : 'Liberar como cortesia'),
-        el('button', { class: 'botao claro menor', onclick: () => acao({ acao: 'bloquear', ativo: !u.bloqueado }, u.bloqueado ? 'Conta reativada.' : 'Conta suspensa.') }, u.bloqueado ? 'Reativar conta' : 'Suspender conta')
+        el('button', { class: 'botao claro menor', onclick: () => acao({ acao: 'bloquear', ativo: !u.bloqueado }, u.bloqueado ? 'Conta reativada.' : 'Conta suspensa.') }, u.bloqueado ? 'Reativar conta' : 'Suspender conta'),
+        u.renovacao && el('button', { class: 'botao claro menor', onclick: () => acao({ acao: 'conferirRenovacao' }, 'Renovação conferida no Mercado Pago.') }, 'Conferir renovação'),
+        u.renovacao && el('button', { class: 'botao claro menor', onclick: () => acao({ acao: 'cancelarRenovacao' }, 'Renovação automática cancelada. O acesso continua até a data final.') }, 'Cancelar renovação automática')
       ),
       el('form', {
         class: 'linha', style: 'align-items: flex-end; flex-wrap: wrap',
@@ -424,6 +428,8 @@ function abaConfig() {
         agir(async () => {
           config = await api('admin/config', 'PUT', {
             mensal: paraCentavos(f.mensal.value),
+            trimestral: paraCentavos(f.trimestral.value),
+            semestral: paraCentavos(f.semestral.value),
             anual: paraCentavos(f.anual.value),
             diasTeste: Number(f.diasTeste.value),
             descontoPix: Number(f.descontoPix.value),
@@ -435,25 +441,30 @@ function abaConfig() {
       el('h3', {}, 'Planos e preços'),
       el('div', { class: 'dupla' },
         campo('Plano mensal (R$)', { id: 'mensal', name: 'mensal', inputmode: 'decimal', required: true, value: paraCampo(c.mensal) }),
+        campo('Plano trimestral (R$)', { id: 'trimestral', name: 'trimestral', inputmode: 'decimal', required: true, value: paraCampo(c.trimestral) })
+      ),
+      el('div', { class: 'dupla' },
+        campo('Plano semestral (R$)', { id: 'semestral', name: 'semestral', inputmode: 'decimal', required: true, value: paraCampo(c.semestral) }),
         campo('Plano anual (R$)', { id: 'anual', name: 'anual', inputmode: 'decimal', required: true, value: paraCampo(c.anual) })
       ),
       el('div', { class: 'dupla' },
         campo('Dias de teste grátis', { id: 'diasTeste', name: 'diasTeste', type: 'number', min: '0', max: '90', required: true, value: String(c.diasTeste) }),
         campo('Desconto no Pix (%)', { id: 'descontoPix', name: 'descontoPix', type: 'number', min: '0', max: '50', required: true, value: String(c.descontoPix) })
       ),
-      campo('Parcelas no cartão (plano anual)', { id: 'parcelasMax', name: 'parcelasMax', type: 'number', min: '1', max: '12', required: true, value: String(c.parcelasMax) }, 'input',
-        'Os juros do parcelamento ficam por conta de quem paga. Mantenha o "parcelamento sem juros" desligado na conta do Mercado Pago.'),
+      campo('Limite de parcelas no cartão', { id: 'parcelasMax', name: 'parcelasMax', type: 'number', min: '1', max: '12', required: true, value: String(c.parcelasMax) }, 'input',
+        'Cada plano parcela até o seu número de meses (trimestral 3x, semestral 6x, anual 12x), sem passar deste limite. Vale só para o cartão sem renovação automática; os juros ficam por conta de quem paga.'),
       el('p', { class: 'pequeno suave' },
-        `Hoje o personal vê: mensal ${reais(t.mensal.cartao)} (Pix ${reais(t.mensal.pix)}) e anual ${reais(t.anual.cartao)} (Pix ${reais(t.anual.pix)}, até ${t.anual.parcelas}x no cartão).`),
+        'Hoje o personal vê: ' + ['mensal', 'trimestral', 'semestral', 'anual'].filter((pl) => t[pl]).map((pl) => `${PLANO[pl].toLowerCase()} ${reais(t[pl].cartao)} (Pix ${reais(t[pl].pix)}${t[pl].parcelas > 1 ? `, até ${t[pl].parcelas}x` : ''})`).join('; ') + '.'),
       el('button', { class: 'botao menor', type: 'submit' }, 'Salvar configuração')
     ),
     el('div', { class: 'cartao' },
       el('h3', {}, 'Integração com o Mercado Pago'),
       el('p', {}, config.configurado ? '✓ Token de acesso configurado.' : '✗ Falta o token de acesso.'),
       el('p', {}, config.avisoProtegido ? '✓ Avisos de pagamento com assinatura conferida.' : '○ Assinatura dos avisos não configurada (opcional).'),
+      el('p', {}, config.chavePublica ? '✓ Chave pública configurada: renovação automática no cartão disponível.' : '✗ Falta a chave pública (MP_PUBLIC_KEY): a renovação automática fica escondida para os personais.'),
       el('p', { class: 'pequeno suave' },
-        'Na Cloudflare, em Settings > Variables and Secrets, cadastre como Secret: MP_ACCESS_TOKEN (Access Token de produção do Mercado Pago) e, opcionalmente, MP_WEBHOOK_SECRET (assinatura secreta dos webhooks). ' +
-        `O endereço dos avisos é ${location.origin}/api/assinatura/webhook, evento "Pagamentos".`)
+        'Na Cloudflare, em Settings > Variables and Secrets, cadastre: MP_ACCESS_TOKEN (Access Token de produção), MP_PUBLIC_KEY (Public Key de produção) e MP_WEBHOOK_SECRET (assinatura secreta dos webhooks). ' +
+        `O endereço dos avisos é ${location.origin}/api/assinatura/webhook, com os eventos "Pagamentos (legacy)" e "Planos e assinaturas".`)
     ),
   ];
 }
