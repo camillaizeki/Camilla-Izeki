@@ -1106,8 +1106,8 @@ function camposCobranca(prefixo, a, { novo }) {
 
   return {
     nos: [
-      el('fieldset', { class: 'pergunta' },
-        el('legend', {}, 'Como o aluno paga?'),
+      el('div', { class: 'pergunta', role: 'group' },
+        el('p', { class: 'pergunta-titulo' }, 'Como o aluno paga?'),
         el('div', { class: 'opcoes' }, opcao('mensal', 'Mensalidade'), opcao('pacote', 'Pacote de aulas'))
       ),
       mensal,

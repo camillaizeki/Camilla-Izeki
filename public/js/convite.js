@@ -17,7 +17,7 @@ const detalhes = {};
 let pularSaude = false;
 let consentimentoSaude = false;
 const EXCLUSIVAS = ['Nenhuma', 'Está ótimo assim', 'Nada, sou constante'];
-const P = () => personal.nome.trim().split(/\s+/)[0];
+const P = () => personal.nome.trim(); // nome como o personal cadastrou (ex.: "Personal Fiona")
 const comNome = (t) => t.replaceAll('{personal}', P());
 
 function foto() {
@@ -112,8 +112,8 @@ function pergunta(q) {
         : el('textarea', { ...atributos, rows: '3', maxlength: '400', required: !!q.detalhe.obrigatorio })
     );
   }
-  return el('fieldset', { class: 'pergunta' },
-    el('legend', {}, comNome(q.texto)),
+  return el('div', { class: 'pergunta', role: 'group' },
+    el('p', { class: 'pergunta-titulo' }, comNome(q.texto)),
     q.ajuda && el('p', { class: 'pequeno suave' }, q.ajuda),
     el('div', { class: 'opcoes' + (muitas ? ' lista' : '') },
       opcoes.map((o) => el('button', { type: 'button', class: 'opcao', 'aria-pressed': String(marcada(o)), onclick: () => escolher(q, o) }, o))
@@ -213,8 +213,8 @@ function desenhar(anterior) {
       quanto.hidden = !temPausa;
     },
   }, texto);
-  const pausaCampo = el('fieldset', { class: 'pergunta', hidden: !valores.desde },
-    el('legend', {}, 'Nesse período, você ficou algum tempo sem treinar com ' + personal.nome + '?'),
+  const pausaCampo = el('div', { class: 'pergunta', role: 'group', hidden: !valores.desde },
+    el('p', { class: 'pergunta-titulo' }, 'Nesse período, você ficou algum tempo sem treinar com ' + personal.nome + '?'),
     el('div', { class: 'opcoes' }, escolha(false, 'Não, treinei direto'), escolha(true, 'Sim, dei uma pausa')),
     quanto
   );
@@ -242,7 +242,7 @@ function desenhar(anterior) {
       el('div', { class: 'campo' },
         el('label', { for: 'dia' }, 'Dia do vencimento (opcional)'),
         el('select', { id: 'dia', name: 'dia' },
-          el('option', { value: '', selected: !valores.dia }, 'Deixar para ' + personal.nome + ' definir'),
+          el('option', { value: '', selected: !valores.dia, disabled: true, hidden: true }, 'Escolha o dia'),
           Array.from({ length: 31 }, (_, i) => el('option', { value: String(i + 1), selected: valores.dia === String(i + 1) }, 'Todo dia ' + (i + 1)))
         ),
         el('p', { class: 'pequeno suave' }, 'O dia do mês em que você costuma pagar. ' + personal.nome + ' pode ajustar depois.')
