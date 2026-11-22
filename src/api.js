@@ -3,6 +3,11 @@ import { prepararBanco, FRASES_PADRAO } from '../lib/banco.js';
 import { gerarPix, normalizarChave } from '../lib/pix.js';
 import { situacaoPacote, pacotesComoRecebimentos, mesesComAula, precoAula } from '../lib/pacotes.js';
 import { calcular, fases, hojeBR, chaveMes, somaMes, mesesBase, marcoDe, dataISO } from '../lib/jornada.js';
+import {
+  lerConfig, validarConfig, valorCobrado, tabelaPlanos, inicioDoTeste, estenderAcesso, situacaoDoAcesso, temAcesso,
+  assinaturaPublica, statusDoMP, mesBR, PLANOS, METODOS,
+} from '../lib/assinatura.js';
+import { chamarMP, mpConfigurado, montarPreferencia, linkDoCheckout, avisoAutentico, ErroMP } from '../lib/mercadopago.js';
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
@@ -12,9 +17,10 @@ const MODELOS = ['@cf/meta/llama-3.3-70b-instruct-fp8-fast', '@cf/meta/llama-3.1
 const TRINTA_DIAS = 30 * 24 * 3600;
 
 class Falha extends Error {
-  constructor(mensagem, status = 400) {
+  constructor(mensagem, status = 400, dados = {}) {
     super(mensagem);
     this.status = status;
+    this.dados = dados; // vai junto na resposta de erro
   }
 }
 
@@ -110,7 +116,9 @@ async function abrirSessao(db, personalId) {
   return cookieSessao(token, TRINTA_DIAS);
 }
 
-async function personalLogado(request, db) {
+// "livre": rotas que funcionam mesmo com o teste ou o plano vencido (assinar, recuperar senha).
+// As demais respondem 402 e o painel mostra a tela de planos.
+async function personalLogado(request, db, { livre = false } = {}) {
   const token = lerCookie(request, 'sessao');
   if (!token) throw new Falha('Entre na sua conta.', 401);
   const agora = Math.floor(Date.now() / 1000);
@@ -119,7 +127,22 @@ async function personalLogado(request, db) {
     .bind(token, agora)
     .first();
   if (!p) throw new Falha('Entre na sua conta.', 401);
+  if (!livre && !temAcesso(p)) {
+    const situacao = situacaoDoAcesso(p);
+    const mensagem =
+      situacao === 'bloqueada'
+        ? 'Sua conta está suspensa. Fale com o suporte.'
+        : situacao === 'teste_encerrado'
+          ? 'Seu teste grátis terminou. Assine para continuar.'
+          : 'Seu plano venceu. Renove para continuar.';
+    throw new Falha(mensagem, 402, { travado: true, assinatura: assinaturaPublica(p) });
+  }
   return p;
+}
+
+async function configDoApp(db) {
+  const linha = await db.prepare("SELECT valor FROM meta WHERE chave = 'config_assinatura'").first();
+  return lerConfig(linha?.valor);
 }
 
 function personalPublico(p) {
@@ -136,6 +159,7 @@ function personalPublico(p) {
     tom: p.tom,
     temFoto: !!p.foto,
     temCodigo: !!p.recuperacao_hash,
+    assinatura: assinaturaPublica(p),
   };
 }
 
@@ -371,9 +395,10 @@ async function rotear(request, env, partes) {
     if (existe) throw new Falha(existe.email === email ? 'Já existe uma conta com esse e-mail.' : 'Esse link já está em uso. Escolha outro.');
     const sal = aleatorio(16);
     const hash = await hashSenha(senha, sal);
+    const criacao = new Date();
     const r = await db
-      .prepare('INSERT INTO personais (slug, nome, email, senha_hash, senha_sal, criado_em) VALUES (?, ?, ?, ?, ?, ?)')
-      .bind(slug, nome, email, hash, sal, new Date().toISOString())
+      .prepare("INSERT INTO personais (slug, nome, email, senha_hash, senha_sal, criado_em, plano, acesso_ate) VALUES (?, ?, ?, ?, ?, ?, 'teste', ?)")
+      .bind(slug, nome, email, hash, sal, criacao.toISOString(), inicioDoTeste(criacao, await configDoApp(db)))
       .run();
     const id = r.meta.last_row_id;
     await db.batch(FRASES_PADRAO.map((f) => db.prepare("INSERT INTO frases (personal_id, texto, origem) VALUES (?, ?, 'padrao')").bind(id, f)));
@@ -403,23 +428,12 @@ async function rotear(request, env, partes) {
   }
 
   if (a === 'conta' && b === 'recuperacao' && metodo === 'POST') {
-    const p = await personalLogado(request, db);
+    const p = await personalLogado(request, db, { livre: true });
     return json({ codigo: await trocarCodigo(db, p.id) });
   }
 
-  // Administração: gera um código de recuperação para a conta de um personal.
-  // Só funciona com a chave guardada como segredo ADMIN_KEY na Cloudflare.
-  if (a === 'admin' && b === 'codigo' && metodo === 'POST') {
-    const chaveCerta = String(env.ADMIN_KEY || '');
-    if (chaveCerta.length < 20) throw new Falha('A área de administração ainda não foi configurada.', 503);
-    const d = await corpo(request);
-    const resumo = async (t) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(t || ''))));
-    if (!iguais(await resumo(d.chave), await resumo(chaveCerta))) throw new Falha('Chave de administração incorreta.', 401);
-    const email = String(d.email || '').trim().toLowerCase();
-    const p = await db.prepare('SELECT id, nome, email FROM personais WHERE email = ?').bind(email).first();
-    if (!p) throw new Falha('Não existe conta com esse e-mail.', 404);
-    return json({ nome: p.nome, email: p.email, codigo: await trocarCodigo(db, p.id) });
-  }
+  if (a === 'admin') return rotasAdmin(request, env, db, partes.slice(1));
+  if (a === 'assinatura') return rotasAssinatura(request, env, db, partes.slice(1));
 
   if (a === 'conta' && b === 'entrar' && metodo === 'POST') {
     const d = await corpo(request);
@@ -964,6 +978,369 @@ async function rotear(request, env, partes) {
   throw new Falha('Caminho não encontrado.', 404);
 }
 
+// ---------- Assinatura do personal (Mercado Pago) ----------
+// Status de um pagamento: aguardando (checkout aberto, nada pago ainda), pendente, aprovado, recusado,
+// cancelado, reembolsado e divergente (valor diferente do cobrado: não libera e fica para a administração conferir).
+
+const DIA_MS = 24 * 3600 * 1000;
+const agoraISO = () => new Date().toISOString();
+
+function pagamentoPublico(g) {
+  return {
+    id: g.id,
+    plano: g.plano,
+    metodo: g.metodo,
+    valor: g.valor,
+    valorPago: g.valor_pago,
+    parcelas: g.parcelas,
+    status: g.status,
+    criadoEm: g.criado_em,
+    aprovadoEm: g.aprovado_em,
+    observacao: g.observacao,
+    mpPagamento: g.mp_pagamento,
+    ...(g.nome && { personal: { id: g.personal_id, nome: g.nome, email: g.email } }),
+  };
+}
+
+// Estende o acesso uma única vez por pagamento aprovado, mesmo que o aviso chegue repetido.
+async function liberarPagamento(db, registro) {
+  const marcado = await db
+    .prepare('UPDATE assinatura_pagamentos SET aplicado = 1, aprovado_em = COALESCE(aprovado_em, ?) WHERE id = ? AND aplicado = 0')
+    .bind(agoraISO(), registro.id)
+    .run();
+  if (!marcado.meta?.changes) return false;
+  const p = await db.prepare('SELECT acesso_ate FROM personais WHERE id = ?').bind(registro.personal_id).first();
+  await db
+    .prepare('UPDATE personais SET plano = ?, acesso_ate = ? WHERE id = ?')
+    .bind(registro.plano, estenderAcesso(p?.acesso_ate, registro.plano), registro.personal_id)
+    .run();
+  return true;
+}
+
+// Grava o que o Mercado Pago informou sobre um pagamento e libera o acesso se foi aprovado.
+async function registrarPagamentoMP(db, pag) {
+  const id = Number(pag?.external_reference);
+  if (!Number.isInteger(id) || id <= 0 || !pag.status) return null;
+  const registro = await db.prepare('SELECT * FROM assinatura_pagamentos WHERE id = ?').bind(id).first();
+  if (!registro || registro.metodo === 'manual') return null;
+  let status = statusDoMP(pag.status);
+  const base = Math.round(Number(pag.transaction_amount || 0) * 100);
+  if (status === 'aprovado' && (pag.currency_id !== 'BRL' || base < registro.valor)) status = 'divergente';
+  // Um pagamento aprovado não volta atrás por um aviso atrasado de outra tentativa; só um reembolso dele mesmo muda.
+  if (registro.status === 'aprovado' && !(status === 'reembolsado' && String(pag.id) === registro.mp_pagamento)) return registro;
+  const pago = Math.round(Number(pag.transaction_details?.total_paid_amount ?? pag.transaction_amount ?? 0) * 100);
+  await db
+    .prepare('UPDATE assinatura_pagamentos SET status = ?, mp_pagamento = ?, valor_pago = ?, parcelas = ?, atualizado_em = ? WHERE id = ?')
+    .bind(status, String(pag.id), pago || null, Number(pag.installments) || 1, agoraISO(), registro.id)
+    .run();
+  if (status === 'aprovado') await liberarPagamento(db, registro);
+  return { ...registro, status };
+}
+
+// Pergunta ao Mercado Pago como está um pagamento (usado na volta ao app e pela administração).
+async function conferirNoMP(env, db, registro) {
+  if (registro.metodo === 'manual' || !mpConfigurado(env)) return registro;
+  const busca = await chamarMP(env, `/v1/payments/search?external_reference=${registro.id}&sort=date_created&criteria=desc&limit=20`);
+  const lista = busca.results || [];
+  const escolhido = lista.find((x) => x.status === 'approved') || lista[0];
+  if (!escolhido) return registro;
+  return (await registrarPagamentoMP(db, escolhido)) || registro;
+}
+
+async function rotasAssinatura(request, env, db, [b]) {
+  const metodo = request.method;
+
+  // Aviso do Mercado Pago (público). O conteúdo do aviso nunca é usado: o pagamento é buscado lá.
+  if (b === 'webhook' && metodo === 'POST') {
+    const url = new URL(request.url);
+    let d = {};
+    try {
+      d = JSON.parse((await request.text()) || '{}');
+    } catch {
+      d = {};
+    }
+    const tipo = d.type || d.topic || url.searchParams.get('type') || url.searchParams.get('topic');
+    const id = String(d.data?.id || url.searchParams.get('data.id') || url.searchParams.get('id') || '');
+    if (tipo !== 'payment' || !/^\d{1,30}$/.test(id)) return json({ ok: true });
+    if (!(await avisoAutentico(env, request, url.searchParams.get('data.id') || id))) throw new Falha('Aviso não reconhecido.', 401);
+    await registrarPagamentoMP(db, await chamarMP(env, '/v1/payments/' + id));
+    return json({ ok: true });
+  }
+
+  const p = await personalLogado(request, db, { livre: true });
+  const config = await configDoApp(db);
+
+  if (!b && metodo === 'GET') {
+    const lista = (
+      await db.prepare("SELECT * FROM assinatura_pagamentos WHERE personal_id = ? AND status != 'aguardando' ORDER BY id DESC LIMIT 12").bind(p.id).all()
+    ).results || [];
+    return json({
+      nome: p.nome,
+      assinatura: assinaturaPublica(p),
+      planos: tabelaPlanos(config),
+      configurado: mpConfigurado(env),
+      pagamentos: lista.map(pagamentoPublico),
+    });
+  }
+
+  if (b === 'checkout' && metodo === 'POST') {
+    if (p.bloqueado) throw new Falha('Sua conta está suspensa. Fale com o suporte.', 403);
+    if (p.cortesia) throw new Falha('Seu acesso já está liberado, sem custo.');
+    const d = await corpo(request);
+    if (!PLANOS.includes(d.plano)) throw new Falha('Escolha um plano.');
+    if (!METODOS.includes(d.metodo)) throw new Falha('Escolha Pix ou cartão.');
+    if (!mpConfigurado(env)) throw new Falha('O pagamento pelo app ainda está sendo configurado. Fale com o suporte.', 503);
+    const valor = valorCobrado(config, d.plano, d.metodo);
+    const agora = agoraISO();
+    const r = await db
+      .prepare("INSERT INTO assinatura_pagamentos (personal_id, plano, metodo, valor, status, criado_em, atualizado_em) VALUES (?, ?, ?, ?, 'aguardando', ?, ?)")
+      .bind(p.id, d.plano, d.metodo, valor, agora, agora)
+      .run();
+    const registro = { id: r.meta.last_row_id, plano: d.plano, metodo: d.metodo, valor };
+    const pref = await chamarMP(env, '/checkout/preferences', {
+      metodo: 'POST',
+      corpo: montarPreferencia({ registro, personal: p, origem: new URL(request.url).origin, parcelasMax: config.parcelasMax }),
+      idempotencia: 'renova-pref-' + registro.id,
+    });
+    await db.prepare('UPDATE assinatura_pagamentos SET mp_preferencia = ? WHERE id = ?').bind(String(pref.id || ''), registro.id).run();
+    return json({ id: registro.id, url: linkDoCheckout(env, pref) });
+  }
+
+  // Volta do checkout: confere na hora, sem esperar o aviso do Mercado Pago.
+  if (b === 'verificar' && metodo === 'POST') {
+    const d = await corpo(request);
+    const registro = await db.prepare('SELECT * FROM assinatura_pagamentos WHERE id = ? AND personal_id = ?').bind(Number(d.id), p.id).first();
+    if (!registro) throw new Falha('Pagamento não encontrado.', 404);
+    const atualizado = await conferirNoMP(env, db, registro);
+    const depois = await db.prepare('SELECT * FROM personais WHERE id = ?').bind(p.id).first();
+    return json({ status: atualizado.status, assinatura: assinaturaPublica(depois) });
+  }
+
+  throw new Falha('Caminho não encontrado.', 404);
+}
+
+// ---------- Administração (/admin) ----------
+// Entrada com a chave guardada como segredo ADMIN_KEY na Cloudflare; a sessão dura 12 horas.
+
+const DOZE_HORAS = 12 * 3600;
+const resumoSha = async (t) => hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(t || ''))));
+const cookieAdmin = (token, duracao) => `admin=${token}; Path=/api/admin; HttpOnly; Secure; SameSite=Strict; Max-Age=${duracao}`;
+
+async function adminLogado(request, env, db, chaveEnviada = null) {
+  const certa = String(env.ADMIN_KEY || '');
+  if (certa.length < 20) throw new Falha('A área de administração ainda não foi configurada.', 503);
+  if (chaveEnviada != null) {
+    if (!iguais(await resumoSha(chaveEnviada), await resumoSha(certa))) throw new Falha('Chave de administração incorreta.', 401);
+    return;
+  }
+  const token = lerCookie(request, 'admin');
+  const sessao = token && (await db.prepare('SELECT token FROM admin_sessoes WHERE token = ? AND expira_em > ?').bind(token, Math.floor(Date.now() / 1000)).first());
+  if (!sessao) throw new Falha('Entre com a chave de administração.', 401);
+}
+
+async function listarUsuarios(db, id = null) {
+  const r = await db
+    .prepare(
+      'SELECT p.id, p.nome, p.email, p.slug, p.criado_em, p.plano, p.acesso_ate, p.cortesia, p.bloqueado, ' +
+        "(SELECT COUNT(*) FROM alunos al WHERE al.personal_id = p.id AND al.status != 'inativo') AS alunos, " +
+        "(SELECT COALESCE(SUM(g.valor), 0) FROM assinatura_pagamentos g WHERE g.personal_id = p.id AND g.status = 'aprovado') AS total_pago, " +
+        "(SELECT MAX(g.aprovado_em) FROM assinatura_pagamentos g WHERE g.personal_id = p.id AND g.status = 'aprovado') AS ultimo_pagamento " +
+        `FROM personais p ${id ? 'WHERE p.id = ?' : ''} ORDER BY p.criado_em DESC`
+    )
+    .bind(...(id ? [id] : []))
+    .all();
+  const agora = new Date();
+  return (r.results || []).map((u) => ({
+    id: u.id,
+    nome: u.nome,
+    email: u.email,
+    slug: u.slug,
+    criadoEm: u.criado_em,
+    alunos: u.alunos,
+    totalPago: u.total_pago,
+    ultimoPagamento: u.ultimo_pagamento,
+    cortesia: !!u.cortesia,
+    bloqueado: !!u.bloqueado,
+    ...assinaturaPublica(u, agora),
+  }));
+}
+
+async function resumoAdmin(env, db, config) {
+  const usuarios = await listarUsuarios(db);
+  const agora = new Date();
+  const conta = (s) => usuarios.filter((u) => u.situacao === s).length;
+  const ativos = usuarios.filter((u) => u.situacao === 'ativa');
+  const mensais = ativos.filter((u) => u.plano === 'mensal').length;
+  const anuais = ativos.filter((u) => u.plano === 'anual').length;
+  const pags = (await db.prepare("SELECT metodo, valor, status, aprovado_em, criado_em FROM assinatura_pagamentos WHERE status != 'aguardando'").all()).results || [];
+  const aprovados = pags.filter((g) => g.status === 'aprovado');
+  const mesAgora = mesBR(agora.toISOString());
+  const serie = [];
+  for (let i = 11; i >= 0; i--) {
+    const mes = somaMes(mesAgora, -i);
+    const doMes = aprovados.filter((g) => mesBR(g.aprovado_em || g.criado_em) === mes);
+    serie.push({ mes, rotulo: rotuloMes(mes), valor: doMes.reduce((t, g) => t + g.valor, 0), quantidade: doMes.length });
+  }
+  const doMesAtual = aprovados.filter((g) => mesBR(g.aprovado_em || g.criado_em) === mesAgora);
+  const porMetodo = Object.fromEntries(['pix', 'cartao', 'manual'].map((m) => [m, doMesAtual.filter((g) => g.metodo === m).reduce((t, g) => t + g.valor, 0)]));
+  const pagantes = usuarios.filter((u) => u.totalPago > 0).length;
+  const encerrados = conta('teste_encerrado');
+  const limite30 = new Date(agora.getTime() - 30 * DIA_MS).toISOString();
+  return {
+    usuarios: {
+      total: usuarios.length,
+      teste: conta('teste'),
+      ativa: ativos.length,
+      cortesia: conta('cortesia'),
+      testeEncerrado: encerrados,
+      vencida: conta('vencida'),
+      bloqueada: conta('bloqueada'),
+      novos30: usuarios.filter((u) => u.criadoEm >= limite30).length,
+      pagantes,
+    },
+    assinantes: { mensais, anuais },
+    mrr: mensais * config.mensal + anuais * Math.round(config.anual / 12),
+    receita: {
+      mes: serie[11].valor,
+      mesAnterior: serie[10].valor,
+      total: aprovados.reduce((t, g) => t + g.valor, 0),
+      porMetodo,
+      serie,
+    },
+    conversao: pagantes + encerrados ? Math.round((pagantes / (pagantes + encerrados)) * 100) : null,
+    pendentes: pags.filter((g) => g.status === 'pendente').length,
+    divergentes: pags.filter((g) => g.status === 'divergente').length,
+    vencendo: ativos
+      .filter((u) => u.diasRestantes <= 7)
+      .sort((x, y) => x.diasRestantes - y.diasRestantes)
+      .map((u) => ({ id: u.id, nome: u.nome, plano: u.plano, diasRestantes: u.diasRestantes })),
+    terminandoTeste: usuarios.filter((u) => u.situacao === 'teste' && u.diasRestantes <= 2).length,
+    configurado: mpConfigurado(env),
+    avisoProtegido: !!env.MP_WEBHOOK_SECRET,
+  };
+}
+
+async function rotasAdmin(request, env, db, [b, c, d4]) {
+  const metodo = request.method;
+
+  if (b === 'entrar' && metodo === 'POST') {
+    const d = await corpo(request);
+    await adminLogado(request, env, db, String(d.chave || ''));
+    const token = aleatorio(32);
+    const agora = Math.floor(Date.now() / 1000);
+    await db.batch([
+      db.prepare('DELETE FROM admin_sessoes WHERE expira_em < ?').bind(agora),
+      db.prepare('INSERT INTO admin_sessoes (token, expira_em) VALUES (?, ?)').bind(token, agora + DOZE_HORAS),
+    ]);
+    return json({ ok: true }, 200, { 'set-cookie': cookieAdmin(token, DOZE_HORAS) });
+  }
+
+  if (b === 'sair' && metodo === 'POST') {
+    const token = lerCookie(request, 'admin');
+    if (token) await db.prepare('DELETE FROM admin_sessoes WHERE token = ?').bind(token).run();
+    return json({ ok: true }, 200, { 'set-cookie': cookieAdmin('', 0) });
+  }
+
+  // Código de recuperação de senha para um personal. Aceita a chave no pedido ou a sessão.
+  if (b === 'codigo' && metodo === 'POST') {
+    const d = await corpo(request);
+    await adminLogado(request, env, db, d.chave == null ? null : String(d.chave));
+    const email = String(d.email || '').trim().toLowerCase();
+    const p = await db.prepare('SELECT id, nome, email FROM personais WHERE email = ?').bind(email).first();
+    if (!p) throw new Falha('Não existe conta com esse e-mail.', 404);
+    return json({ nome: p.nome, email: p.email, codigo: await trocarCodigo(db, p.id) });
+  }
+
+  await adminLogado(request, env, db);
+  const config = await configDoApp(db);
+
+  if (b === 'resumo' && metodo === 'GET') return json(await resumoAdmin(env, db, config));
+
+  if (b === 'usuarios' && !c && metodo === 'GET') return json({ usuarios: await listarUsuarios(db) });
+
+  if (b === 'usuarios' && c) {
+    const u = await db.prepare('SELECT * FROM personais WHERE id = ?').bind(Number(c)).first();
+    if (!u) throw new Falha('Usuário não encontrado.', 404);
+    const d = await corpo(request);
+
+    // Ajustes de acesso: somar dias, definir a data final, cortesia e suspensão.
+    if (!d4 && metodo === 'PUT') {
+      const agora = new Date();
+      if (d.acao === 'dias') {
+        const dias = inteiro(d.dias, -3650, 3650, 'dias');
+        const atual = u.acesso_ate ? new Date(u.acesso_ate) : agora;
+        const base = dias > 0 && atual < agora ? agora : atual;
+        await db.prepare('UPDATE personais SET acesso_ate = ? WHERE id = ?').bind(new Date(base.getTime() + dias * DIA_MS).toISOString(), u.id).run();
+      } else if (d.acao === 'ate') {
+        const data = dataValida(d.data, 'data');
+        await db.prepare('UPDATE personais SET acesso_ate = ? WHERE id = ?').bind(new Date(data + 'T23:59:59-03:00').toISOString(), u.id).run();
+      } else if (d.acao === 'cortesia') {
+        await db.prepare('UPDATE personais SET cortesia = ? WHERE id = ?').bind(d.ativa ? 1 : 0, u.id).run();
+      } else if (d.acao === 'bloquear') {
+        await db.prepare('UPDATE personais SET bloqueado = ? WHERE id = ?').bind(d.ativo ? 1 : 0, u.id).run();
+      } else throw new Falha('Ação desconhecida.');
+      return json({ usuario: (await listarUsuarios(db, u.id))[0] });
+    }
+
+    // Pagamento recebido fora do app (ex.: Pix direto): registra e libera o acesso do plano.
+    if (d4 === 'pagamento' && metodo === 'POST') {
+      if (!PLANOS.includes(d.plano)) throw new Falha('Escolha o plano.');
+      const valor = inteiro(d.valor, 0, 10000000, 'valor');
+      const agora = agoraISO();
+      const r = await db
+        .prepare(
+          "INSERT INTO assinatura_pagamentos (personal_id, plano, metodo, valor, valor_pago, parcelas, status, observacao, criado_em, atualizado_em, aprovado_em) VALUES (?, ?, 'manual', ?, ?, 1, 'aprovado', ?, ?, ?, ?)"
+        )
+        .bind(u.id, d.plano, valor, valor, String(d.observacao || '').trim().slice(0, 200) || null, agora, agora, agora)
+        .run();
+      await liberarPagamento(db, { id: r.meta.last_row_id, personal_id: u.id, plano: d.plano });
+      return json({ usuario: (await listarUsuarios(db, u.id))[0] });
+    }
+  }
+
+  if (b === 'pagamentos' && !c && metodo === 'GET') {
+    const todos = new URL(request.url).searchParams.get('todos') === '1';
+    const r = await db
+      .prepare(
+        'SELECT g.*, p.nome, p.email FROM assinatura_pagamentos g JOIN personais p ON p.id = g.personal_id ' +
+          (todos ? '' : "WHERE g.status != 'aguardando' ") +
+          'ORDER BY g.id DESC LIMIT 300'
+      )
+      .all();
+    return json({ pagamentos: (r.results || []).map(pagamentoPublico) });
+  }
+
+  if (b === 'pagamentos' && c && d4 === 'verificar' && metodo === 'POST') {
+    const registro = await db.prepare('SELECT * FROM assinatura_pagamentos WHERE id = ?').bind(Number(c)).first();
+    if (!registro) throw new Falha('Pagamento não encontrado.', 404);
+    if (!mpConfigurado(env)) throw new Falha('O Mercado Pago ainda não foi configurado.', 503);
+    const atualizado = await conferirNoMP(env, db, registro);
+    return json({ status: atualizado.status });
+  }
+
+  if (b === 'config') {
+    if (metodo === 'PUT') {
+      const d = await corpo(request);
+      let nova;
+      try {
+        nova = validarConfig(d);
+      } catch (e) {
+        throw new Falha(e.message);
+      }
+      await db
+        .prepare("INSERT INTO meta (chave, valor) VALUES ('config_assinatura', ?) ON CONFLICT (chave) DO UPDATE SET valor = excluded.valor")
+        .bind(JSON.stringify(nova))
+        .run();
+      return json({ config: nova, planos: tabelaPlanos(nova), configurado: mpConfigurado(env), avisoProtegido: !!env.MP_WEBHOOK_SECRET });
+    }
+    if (metodo === 'GET') {
+      return json({ config, planos: tabelaPlanos(config), configurado: mpConfigurado(env), avisoProtegido: !!env.MP_WEBHOOK_SECRET });
+    }
+  }
+
+  throw new Falha('Caminho não encontrado.', 404);
+}
+
 // "partes" é o caminho depois de /api/, já separado: /api/alunos/3 vira ['alunos', '3'].
 export async function atenderApi(request, env, partes) {
   try {
@@ -971,7 +1348,8 @@ export async function atenderApi(request, env, partes) {
     await prepararBanco(env.DB);
     return await rotear(request, env, partes);
   } catch (e) {
-    if (e instanceof Falha) return json({ erro: e.message }, e.status);
+    if (e instanceof Falha) return json({ erro: e.message, ...e.dados }, e.status);
+    if (e instanceof ErroMP) return json({ erro: e.message + ' Tente de novo em instantes.' }, mpConfigurado(env) ? 502 : 503);
     console.error(e);
     return json({ erro: 'Algo deu errado do nosso lado. Tente de novo em instantes.' }, 500);
   }
