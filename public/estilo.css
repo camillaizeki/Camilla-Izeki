@@ -367,3 +367,7 @@ body.admin #app { max-width: 980px; }
 .acoes { display: flex; flex-wrap: wrap; gap: 8px; }
 .acoes .botao { width: auto; padding: 0 16px; }
 .campo-busca { min-height: 44px; padding: 0 14px; border: 1.5px solid var(--linha-forte); border-radius: 13px; font: inherit; background: var(--superficie); width: 100%; }
+
+/* Suporte: WhatsApp e e-mail lado a lado */
+.acoes-suporte { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.acoes-suporte .botao { text-decoration: none; display: flex; align-items: center; justify-content: center; }
