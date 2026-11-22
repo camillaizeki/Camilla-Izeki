@@ -55,7 +55,7 @@ function telaPix(redesenhar) {
     el('div', { class: 'cartao' },
       el('p', { class: 'pequeno suave' }, 'No seu banco, o recebedor aparece como:'),
       el('p', { style: 'font-weight: 600' }, RECEBEDOR),
-      el('p', { class: 'pequeno suave' }, 'É a empresa responsável pelo App Renova.AI. Pode pagar tranquilo.')
+      el('p', { class: 'pequeno suave' }, 'É a empresa responsável pelo App Renova.AI.')
     ),
     el('div', { class: 'pix-codigo' }, pixAberto.pix.copiaECola),
     copiarBotao,
