@@ -52,6 +52,10 @@ function telaPix(redesenhar) {
       pixAberto.pix.qrBase64 && el('img', { src: 'data:image/png;base64,' + pixAberto.pix.qrBase64, alt: 'QR Code do Pix', width: '200', height: '200', style: 'margin: 6px auto; display: block; image-rendering: pixelated' }),
       el('p', { class: 'pequeno suave' }, 'No celular, copie o código e use "Pix Copia e Cola" no banco.')
     ),
+    el('div', { class: 'cartao' },
+      el('p', { class: 'pequeno suave' }, 'No seu banco, o recebedor aparece como:'),
+      el('p', { style: 'font-weight: 600' }, RECEBEDOR)
+    ),
     el('div', { class: 'pix-codigo' }, pixAberto.pix.copiaECola),
     copiarBotao,
     el('p', { class: 'aviso', role: 'status' }, 'Aguardando o pagamento… Assim que o banco confirmar, o acesso libera sozinho nesta tela. O código vale por 30 minutos.'),
@@ -60,6 +64,8 @@ function telaPix(redesenhar) {
 }
 
 export const SUPORTE = 'izekicamilla@gmail.com';
+// Titular da conta que recebe: é o nome que o banco mostra na hora de pagar o Pix.
+const RECEBEDOR = '36.348.714 CAMILLA IZEKI MARTINS, App Renova.AI';
 
 const dataBR = (iso) => new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' });
 const faltam = (n) => (n === 1 ? 'falta 1 dia' : `faltam ${n} dias`);
