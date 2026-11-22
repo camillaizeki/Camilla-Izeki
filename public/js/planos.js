@@ -222,8 +222,8 @@ export function blocoPlanos(info, redesenhar, aoConfirmar = () => location.reloa
 
   return el('div', { class: 'coluna', style: 'gap: 14px' },
     el('div', { class: 'planos' }, (t.ordem || ['mensal', 'anual']).map(cartaoPlano)),
-    el('fieldset', { class: 'pergunta' },
-      el('legend', {}, 'Forma de pagamento'),
+    el('div', { class: 'pergunta', role: 'group' },
+      el('p', { class: 'pergunta-titulo' }, 'Forma de pagamento'),
       el('div', { class: 'opcoes' },
         el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(forma === 'pix'), onclick: escolher(() => { forma = 'pix'; }) }, t.descontoPix ? `Pix · ${t.descontoPix}% off` : 'Pix'),
         el('button', { class: 'opcao', type: 'button', 'aria-pressed': String(forma === 'cartao'), onclick: escolher(() => { forma = 'cartao'; }) }, 'Cartão')
