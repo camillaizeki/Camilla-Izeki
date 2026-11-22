@@ -162,6 +162,7 @@ function personalPublico(p) {
     tom: p.tom,
     temFoto: !!p.foto,
     temCodigo: !!p.recuperacao_hash,
+    anamneseAtiva: p.anamnese_ativa !== 0,
     assinatura: assinaturaPublica(p),
   };
 }
@@ -452,6 +453,15 @@ async function rotear(request, env, partes) {
     const token = lerCookie(request, 'sessao');
     if (token) await db.prepare('DELETE FROM sessoes WHERE token = ?').bind(token).run();
     return json({ ok: true }, 200, { 'set-cookie': cookieSessao('', 0) });
+  }
+
+  // Liga ou desliga a ficha de anamnese no link de convite.
+  if (a === 'conta' && b === 'anamnese' && metodo === 'PUT') {
+    const p = await personalLogado(request, db);
+    const d = await corpo(request);
+    if (typeof d.ativa !== 'boolean') throw new Falha('Escolha se o convite pede a anamnese.');
+    await db.prepare('UPDATE personais SET anamnese_ativa = ? WHERE id = ?').bind(d.ativa ? 1 : 0, p.id).run();
+    return json({ anamneseAtiva: d.ativa });
   }
 
   if (a === 'conta' && !b && metodo === 'PUT') {
@@ -882,7 +892,7 @@ async function rotear(request, env, partes) {
     const p = await db.prepare('SELECT * FROM personais WHERE slug = ?').bind(String(b).toLowerCase()).first();
     if (!p) throw new Falha('Convite não encontrado. Confira o link com seu personal.', 404);
     if (metodo === 'GET') {
-      return json({ personal: { nome: p.nome, slug: p.slug, temFoto: !!p.foto }, anamnese: ANAMNESE });
+      return json({ personal: { nome: p.nome, slug: p.slug, temFoto: !!p.foto }, anamnese: p.anamnese_ativa !== 0 ? ANAMNESE : [] });
     }
     if (metodo === 'POST') {
       const d = await corpo(request);
@@ -893,7 +903,7 @@ async function rotear(request, env, partes) {
       if (!d.aceite) throw new Falha('É preciso aceitar o compartilhamento dos dados para continuar.');
       // Anamnese: opcional para quem abriu a página antes desta versão; quando vem, é conferida inteira.
       let anamnese = null;
-      if (d.anamnese) {
+      if (d.anamnese && p.anamnese_ativa !== 0) {
         try {
           anamnese = JSON.stringify(validarAnamnese(d.anamnese));
         } catch (e) {
