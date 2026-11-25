@@ -5,6 +5,8 @@
 // Nada é enviado ao servidor e nada é gravado: o arquivo só existe na memória
 // durante a leitura.
 
+import { extrairDados } from './extracao.js';
+
 const PDFJS_VERSAO = '6.2.108';
 const PDFJS_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSAO}/legacy/build/pdf.min.mjs`;
 const PDFJS_WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSAO}/legacy/build/pdf.worker.min.mjs`;
@@ -90,12 +92,22 @@ export function ehImagem(arquivo) {
   return /^image\//.test(arquivo.type) || /\.(jpe?g|png|webp|heic|heif)$/i.test(arquivo.name || '');
 }
 
+// Modos de leitura do Tesseract: "6" lê a página como um bloco (bom para as linhas "rótulo  valor"
+// dos comprovantes); "3" separa a página em blocos sozinho e pega o que o "6" às vezes pula,
+// como um valor grande e isolado ("R$ 300"). A segunda leitura só acontece se faltar valor ou pagador.
 async function ocrDeCanvas(canvas, onProgresso) {
   const worker = await obterWorkerOcr();
-  progressoAtual = onProgresso || null;
-  try {
+  const ler = async (modo, inicio, peso) => {
+    await worker.setParameters?.({ tessedit_pageseg_mode: modo });
+    progressoAtual = onProgresso ? (f) => onProgresso(inicio + f * peso) : null;
     const { data } = await worker.recognize(canvas);
     return data.text || '';
+  };
+  try {
+    let texto = await ler('6', 0, 0.85);
+    const dados = extrairDados(texto);
+    if (dados.valor == null || !dados.pagador) texto += '\n' + (await ler('3', 0.85, 0.15)); // o primeiro achado de cada campo vale
+    return texto;
   } finally {
     progressoAtual = null;
   }

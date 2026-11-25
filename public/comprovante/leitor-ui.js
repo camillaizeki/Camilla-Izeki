@@ -238,6 +238,7 @@ export function abrirLeitorComprovante(op = {}, arquivosIniciais = null) {
 
   function podeConfirmar(item) {
     if (ctx.ocupado || item.alunoId == null || valorDoCampo(item.valorTexto) == null || !item.data) return false;
+    if (op.mesesPendentes && (item.meses === 'carregando' || (item.meses?.length && item.mes == null))) return false;
     if (item.duplicado && item.chave?.tipo === 'e2e') return false;
     return true;
   }
@@ -287,9 +288,16 @@ export function abrirLeitorComprovante(op = {}, arquivosIniciais = null) {
     avancar();
   }
 
+  // Ao chegar num comprovante, os meses em aberto são buscados de novo: um anterior da mesma fila pode ter quitado algum.
+  function entrarNoItem() {
+    const item = ctx.itens[ctx.indice];
+    if (item && !item.erro && item.alunoId != null) carregarMeses(item);
+  }
+
   function avancar() {
     ctx.indice += 1;
     ctx.etapa = ctx.indice >= ctx.itens.length ? 'fim' : 'item';
+    if (ctx.etapa === 'item') entrarNoItem();
     render();
   }
 
@@ -557,7 +565,7 @@ export function abrirLeitorComprovante(op = {}, arquivosIniciais = null) {
         raiz.querySelector(`[data-entrada="${alvo.dataset.acao}"]`).click(); break;
       case 'manual': lancarManual(false); break;
       case 'manual-item': lancarManual(true); break;
-      case 'comecar': ctx.etapa = 'item'; render(); break;
+      case 'comecar': ctx.etapa = 'item'; entrarNoItem(); render(); break;
       case 'pular': ctx.puladas++; avancar(); break;
       case 'mais': ctx.etapa = 'inicio'; ctx.itens = []; render(); break;
       case 'trocar': case 'buscar':

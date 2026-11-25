@@ -57,14 +57,14 @@ export function formatarData(iso) {
 // ---------------------------------------------------------------------------
 
 const ROTULOS_ORIGEM = [
-  'dados do pagador', 'nome do pagador', 'dados de origem', 'conta de origem',
+  'dados de quem pagou', 'dados do pagador', 'nome do pagador', 'dados de origem', 'conta de origem',
   'quem pagou', 'pago por', 'enviado por', 'origem', 'pagador', 'remetente', 'de',
 ];
 const ROTULOS_DESTINO = [
-  'dados do recebedor', 'nome do recebedor', 'dados do favorecido', 'dados de destino',
+  'dados de quem recebeu', 'dados do recebedor', 'nome do recebedor', 'dados do favorecido', 'dados de destino',
   'conta de destino', 'quem recebeu', 'enviado para', 'destino', 'recebedor',
   'favorecido', 'beneficiario', 'destinatario', 'para',
-].map((r) => r);
+];
 
 // Palavras que nunca formam um nome de pessoa.
 const NAO_NOME = new Set([
@@ -152,7 +152,8 @@ function extrairNomes(linhas) {
   return r;
 }
 
-const RE_DINHEIRO = /R\s?[$S5]\s*([0-9]{1,3}(?:[.\s]?[0-9]{3})*,[0-9]{2})/i;
+// "R$ 1.250,00" e também "R$ 300" (alguns apps mostram o valor sem centavos).
+const RE_DINHEIRO = /R\s?[$S5]\s*([0-9]{1,3}(?:\.?[0-9]{3})*(?:,[0-9]{2})?)(?![0-9.,])/i;
 const RE_NUMERO_BR = /\b([0-9]{1,3}(?:\.?[0-9]{3})*,[0-9]{2})\b/;
 
 function paraNumero(s) {

@@ -486,6 +486,16 @@ function cartaoAluno(a) {
 async function opcoesDoLeitor() {
   if (!pagadores) pagadores = (await api('comprovantes').catch(() => ({ pagadores: [] }))).pagadores;
   const porId = new Map(dados.alunos.map((a) => [a.id, a]));
+  // Meses quitados nesta leitura: com vários comprovantes de uma vez, o segundo do mesmo aluno não oferece o mês já pago.
+  const quitados = new Set();
+  const livre = (a, mes) => !quitados.has(`${a.id}|${mes}`);
+  const somarMes = (mes, n) => {
+    const [ano, m] = mes.split('-').map(Number);
+    const d = new Date(Date.UTC(ano, m - 1 + n, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
+  const NOMES_MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const rotuloDe = (mes) => `${maiuscula(NOMES_MES[Number(mes.slice(5)) - 1])} de ${mes.slice(0, 4)}`;
   return {
     alunos: dados.alunos
       .filter((a) => a.status === 'ativo' && a.valor > 0)
@@ -503,8 +513,14 @@ async function opcoesDoLeitor() {
       const a = porId.get(aluno.id);
       if (!a) return [];
       if (a.modo === 'pacote') return [{ valor: 'pacote', rotulo: `Pacote de ${aulasTxt(a.pacoteAulas)}` }];
-      const lista = a.abertas.map((m) => ({ valor: m.mes, rotulo: maiuscula(m.rotulo) + (m.situacao === 'atrasado' ? ' (atrasada)' : '') }));
-      if (a.mesSeguinte) lista.push({ valor: a.mesSeguinte.mes, rotulo: maiuscula(a.mesSeguinte.rotulo) + ' (adiantado)' });
+      const lista = a.abertas
+        .filter((m) => livre(a, m.mes))
+        .map((m) => ({ valor: m.mes, rotulo: maiuscula(m.rotulo) + (m.situacao === 'atrasado' ? ' (atrasada)' : '') }));
+      if (a.mesSeguinte) {
+        let mes = a.mesSeguinte.mes;
+        while (!livre(a, mes)) mes = somarMes(mes, 1);
+        lista.push({ valor: mes, rotulo: rotuloDe(mes) + ' (adiantado)' });
+      }
       return lista;
     },
     verificarDuplicado: async (chave) => (await api('comprovantes/verificar', 'POST', { chave })).duplicado,
@@ -517,6 +533,7 @@ async function opcoesDoLeitor() {
         chave: baixa.chave,
         lembrarPagador: baixa.lembrarPagador?.nome || null,
       });
+      if (baixa.mesReferencia && baixa.mesReferencia !== 'pacote') quitados.add(`${baixa.alunoId}|${baixa.mesReferencia}`);
       if (baixa.lembrarPagador) pagadores.push(baixa.lembrarPagador);
     },
     onFechar: async ({ registradas }) => {

@@ -239,3 +239,53 @@ test('chave do comprovante: hash do E2E e chave aproximada', async () => {
   assert.equal(c.hash, d.hash);
   assert.equal(await chaveDoComprovante({ pagador: 'João' }), null);
 });
+
+// Casos vindos do OCR real (Tesseract 5, português) em prints no layout de vários bancos.
+test('OCR real: valor sem centavos e rótulos "Dados de quem pagou/recebeu"', () => {
+  const bradesco = extrairDados(`Comprovante de Transação Pix
+Data e Hora 24/11/2026 - 08:41:12
+Valor R$ 250,00
+Tipo Pix por chave
+Dados de quem recebeu
+
+Nome Rafael Andrade Lima
+CPF *+* 456. 789-+*
+Instituição NU PAGAMENTOS - IP
+Dados de quem pagou
+
+Nome Lucas Souza
+CPF *** 555.666-**
+Instituição BANCO BRADESCO S.A.
+ID E6074694820261124114122222222222`);
+  assert.equal(bradesco.pagador, 'Lucas Souza');
+  assert.equal(bradesco.recebedor, 'Rafael Andrade Lima');
+  assert.equal(bradesco.valor, 250);
+  assert.ok(bradesco.e2e);
+
+  // Primeira leitura (modo bloco) pulou o valor; a segunda (modo automático) foi acrescentada no fim.
+  const mercadoPago = extrairDados(`Comprovante de transferência
+Terça-feira, 24 de novembro de 2026, às 08:41
+De
+
+Bruno Costa
+CPF: ***.111.222-**
+Para
+Rafael Andrade Lima
+
+Comprovante de transferência
+Terça-feira, 24 de novembro de 2026, às 08:41
+
+R$ 300
+
+De`);
+  assert.equal(mercadoPago.valor, 300);
+  assert.equal(mercadoPago.pagador, 'Bruno Costa');
+  assert.equal(mercadoPago.data, '2026-11-24');
+});
+
+test('valor: com e sem centavos, sem confundir com outros números', () => {
+  assert.equal(extrairDados('R$ 1.250,00').valor, 1250);
+  assert.equal(extrairDados('R$ 300').valor, 300);
+  assert.equal(extrairDados('Total R$ 2.000').valor, 2000);
+  assert.equal(extrairDados('RS 99,90').valor, 99.9);
+});
