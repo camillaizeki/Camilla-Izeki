@@ -10,6 +10,13 @@ export default {
 
     if (partes[0] === 'api') return atenderApi(request, env, partes.slice(1));
 
+    // Comprovante compartilhado pelo WhatsApp (Android). Quem recebe o arquivo é o service worker,
+    // no próprio celular; se ele ainda não estiver instalado, o pedido chega aqui. O arquivo não é
+    // lido: o personal volta ao painel e escolhe o comprovante por lá.
+    if (url.pathname === '/comprovante') {
+      return Response.redirect(new URL('/painel?comprovante=reenviar', url).href, 303);
+    }
+
     // Endereços bonitos: /c/<link do personal> e /a/<código do aluno>
     if (request.method === 'GET' && partes.length === 2) {
       if (partes[0] === 'c') return entregarPagina({ request, env }, '/convite');

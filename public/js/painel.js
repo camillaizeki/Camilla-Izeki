@@ -3,6 +3,7 @@ import { api, el, icone, campo, meses, reais, paraCentavos, copiar, montar, form
 import { iniciarInstalacao, avisoInstalar, secaoInstalar } from './instalar.js';
 import { blocoPlanos, blocoRenovacao, textoSituacao, voltaDoCheckout, avisoPagamento, ocupado } from './planos.js';
 import { cartaoSuporte, botoesSuporte } from './suporte.js';
+import { abrirLeitorComprovante, abrirSeCompartilhado } from '../comprovante/leitor-ui.js';
 
 let dados = null; // { personal, hoje, mesAtual, resumo, financeiro, alunos, frases }
 let aba = 'inicio';
@@ -18,6 +19,7 @@ let folha = null; // janela aberta por cima: fila de lembretes, aluno, pagamento
 let travado = null; // { erro, assinatura } quando o teste ou o plano acabou
 let planos = null; // valores e situação da assinatura (GET /api/assinatura)
 let msgPagamento = null; // resultado da volta do checkout
+let pagadores = null; // quem paga por algum aluno ("Maria paga pelo Lucas"), para o leitor de comprovantes
 
 const P = () => dados.personal.nome;
 const linkAluno = (a) => `${location.origin}/a/${a.token}`;
@@ -303,7 +305,8 @@ function abaInicio() {
       el('div', { class: 'dupla' },
         el('button', { class: 'botao menor', onclick: () => irParaAlunos(f.alunos.inadimplentes && !avisaram ? 'atrasado' : avisaram ? 'todos' : 'pendente') }, 'Conferir'),
         el('button', { class: 'botao claro menor', disabled: !fila.length, onclick: () => abrirFila(fila) }, fila.length ? `Lembrar (${fila.length})` : 'Lembretes em dia')
-      )
+      ),
+      el('button', { class: 'botao claro menor', onclick: abrirLeitor }, icone('comprovante', { tamanho: 18 }), 'Ler comprovante')
     ),
     el('div', { class: 'linha entre mes-nav' },
       el('button', { class: 'icone-botao', 'aria-label': 'Mês anterior', disabled: mesVisto === 0, onclick: mudarMes(-1) }, '‹'),
@@ -477,6 +480,64 @@ function cartaoAluno(a) {
   );
 }
 
+// ---------- Ler comprovante ----------
+// A imagem ou o PDF são lidos no próprio celular (public/comprovante/). O servidor recebe só os dados do pagamento.
+
+async function opcoesDoLeitor() {
+  if (!pagadores) pagadores = (await api('comprovantes').catch(() => ({ pagadores: [] }))).pagadores;
+  const porId = new Map(dados.alunos.map((a) => [a.id, a]));
+  return {
+    alunos: dados.alunos
+      .filter((a) => a.status === 'ativo' && a.valor > 0)
+      .map((a) => ({
+        id: a.id,
+        nome: a.nome,
+        mensalidade: a.valor / 100,
+        tipoValor: a.modo === 'pacote' ? 'pacote' : 'mensalidade',
+        descricaoValor: a.modo === 'pacote' ? `Pacote de ${aulasTxt(a.pacoteAulas)} · ${reais(a.valor)}` : `Mensalidade ${reais(a.valor)}`,
+      })),
+    pagadoresSalvos: pagadores,
+    nomesDoPersonal: [dados.personal.nome, dados.personal.pixNome],
+    // Meses que a baixa pode quitar: os em aberto (o mais antigo primeiro) e o próximo, adiantado.
+    mesesPendentes: (aluno) => {
+      const a = porId.get(aluno.id);
+      if (!a) return [];
+      if (a.modo === 'pacote') return [{ valor: 'pacote', rotulo: `Pacote de ${aulasTxt(a.pacoteAulas)}` }];
+      const lista = a.abertas.map((m) => ({ valor: m.mes, rotulo: maiuscula(m.rotulo) + (m.situacao === 'atrasado' ? ' (atrasada)' : '') }));
+      if (a.mesSeguinte) lista.push({ valor: a.mesSeguinte.mes, rotulo: maiuscula(a.mesSeguinte.rotulo) + ' (adiantado)' });
+      return lista;
+    },
+    verificarDuplicado: async (chave) => (await api('comprovantes/verificar', 'POST', { chave })).duplicado,
+    onConfirmar: async (baixa) => {
+      await api('comprovantes', 'POST', {
+        alunoId: baixa.alunoId,
+        mes: baixa.mesReferencia === 'pacote' ? null : baixa.mesReferencia,
+        valor: Math.round(baixa.valor * 100),
+        data: baixa.data,
+        chave: baixa.chave,
+        lembrarPagador: baixa.lembrarPagador?.nome || null,
+      });
+      if (baixa.lembrarPagador) pagadores.push(baixa.lembrarPagador);
+    },
+    onFechar: async ({ registradas }) => {
+      if (!registradas) return;
+      try {
+        await carregar();
+        desenhar();
+      } catch { /* mantém o que já está na tela */ }
+    },
+  };
+}
+
+async function abrirLeitor() {
+  try {
+    abrirLeitorComprovante(await opcoesDoLeitor());
+  } catch (e) {
+    erro = e.message;
+    desenhar();
+  }
+}
+
 function alunosFiltrados() {
   const termo = busca.trim().toLowerCase();
   return dados.alunos
@@ -530,6 +591,7 @@ function abaAlunos() {
       numero('Pendente', r.pendente),
       numero('Atrasado', r.atrasado)
     ),
+    ativos.length > 0 && el('button', { class: 'botao', onclick: abrirLeitor }, icone('comprovante', { tamanho: 20 }), 'Ler comprovante'),
     el('div', { class: 'dupla' },
       el('button', { class: 'botao menor', disabled: !fila.length, onclick: () => abrirFila(fila) }, fila.length ? `Lembrar (${fila.length})` : 'Lembretes em dia'),
       el('button', { class: 'botao claro menor', onclick: () => abrirFormulario(null) }, 'Novo aluno')
@@ -1544,6 +1606,8 @@ try {
   msgPagamento = await volta;
   if (msgPagamento?.status === 'aprovado') await carregar();
   desenhar();
+  // Aberto pelo compartilhamento do WhatsApp (Android): o leitor já abre com o comprovante.
+  if (dados && new URLSearchParams(location.search).has('comprovante')) abrirSeCompartilhado(await opcoesDoLeitor());
   const a = dados?.personal.assinatura;
   if (a && (a.situacao === 'teste' || (a.situacao === 'ativa' && a.diasRestantes <= 5))) {
     await carregarPlanos();
