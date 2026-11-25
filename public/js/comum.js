@@ -53,6 +53,7 @@ const DESENHOS = {
   raio: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
   pausa: '<rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/>',
   trocar: '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>',
+  comprovante: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
 };
 
 export function icone(nome, { tamanho = 22, cor = 'currentColor', traco = 2 } = {}) {

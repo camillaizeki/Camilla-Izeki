@@ -11,6 +11,7 @@ import {
   chamarMP, mpConfigurado, montarPreferencia, montarPix, dadosDoPix, montarRecorrente, statusRecorrenteDoMP, linkDoCheckout, avisoAutentico, ErroMP,
 } from '../lib/mercadopago.js';
 import { ANAMNESE, validarAnamnese, lerAnamnese, itensDaAnamnese } from '../lib/anamnese.js';
+import { normalizarNome } from '../public/comprovante/extracao.js'; // a mesma regra de nomes do celular
 import { faltantes, ajustesDePausa, filtroDoAluno, resumoDoMes, situacaoMensalidade, vencimentoDe, rotuloMes, serieMensal, posicaoAtual, mesesFuturos, projecaoDoMes } from '../lib/mensalidades.js';
 
 const RESERVADOS = ['api', 'painel', 'aluno', 'convite', 'admin', 'renova', 'renovaai', 'privacidade', 'c', 'a'];
@@ -306,6 +307,7 @@ function alunoParaPainel(a, pagamentos, pausas, hoje, pacotes = [], aulas = []) 
     totalAberto: abertas.reduce((t, m) => t + (m.valor || 0), 0),
     pausas: pausas.map((p) => ({ id: p.id, inicio: p.inicio, fim: p.fim, cobrar: !!p.cobrar })),
     pagoAte: pagoAte(pagamentos, hoje),
+    mesSeguinte: mesSeguinte(a, pagamentos, hoje),
     proximoMarco: marcoDe(c.meses + 1),
     lembradoHoje: a.lembrado_em === dataHoje(),
   };
@@ -337,6 +339,46 @@ async function alunoDoPersonal(db, personal, id) {
   const a = await db.prepare('SELECT * FROM alunos WHERE id = ? AND personal_id = ?').bind(Number(id), personal.id).first();
   if (!a) throw new Falha('Aluno não encontrado.', 404);
   return a;
+}
+
+// Marca uma mensalidade como paga (cria a linha se o mês ainda não existe, como no pagamento adiantado).
+function comandoPagar(db, aluno, atual, mes, valor, data) {
+  const previsto = atual?.valor_previsto ?? aluno.valor ?? 0;
+  const vencimento = atual?.vencimento || vencimentoDe(mes, aluno.dia_venc);
+  return db
+    .prepare(
+      "INSERT INTO pagamentos (aluno_id, mes, status, valor_previsto, vencimento, recebido_em, valor_recebido, confirmado_em) VALUES (?, ?, 'confirmado', ?, ?, ?, ?, ?) " +
+        "ON CONFLICT (aluno_id, mes) DO UPDATE SET status = 'confirmado', recebido_em = excluded.recebido_em, valor_recebido = excluded.valor_recebido, confirmado_em = excluded.confirmado_em"
+    )
+    .bind(aluno.id, mes, previsto || valor, vencimento, data, valor, new Date().toISOString());
+}
+
+// Chave do comprovante enviada pelo celular: só o hash, nunca o ID da transação em si.
+function lerChave(c) {
+  if (!c || typeof c !== 'object') return null;
+  if (c.tipo !== 'e2e' && c.tipo !== 'aproximada') return null;
+  if (!/^[0-9a-f]{64}$/.test(String(c.hash || ''))) return null;
+  return { tipo: c.tipo, hash: c.hash };
+}
+
+// Data (horário de Brasília) em que um comprovante já usado foi lançado.
+async function comprovanteUsado(db, personalId, hash) {
+  const r = await db
+    .prepare('SELECT c.criado_em, al.nome FROM comprovantes c JOIN alunos al ON al.id = c.aluno_id WHERE c.personal_id = ? AND c.hash = ? ORDER BY c.id DESC')
+    .bind(personalId, hash)
+    .first();
+  if (!r) return null;
+  return { data: new Date(Date.parse(r.criado_em) - 3 * 3600 * 1000).toISOString().slice(0, 10), alunoNome: r.nome };
+}
+
+// Próximo mês que ainda não existe para o aluno: é o que se paga adiantado.
+function mesSeguinte(a, pagamentos, hoje) {
+  if (a.modo === 'pacote' || a.status !== 'ativo' || !(a.valor > 0)) return null;
+  const atual = chaveMes(hoje.ano, hoje.mes);
+  const existentes = new Set(pagamentos.map((p) => p.mes));
+  let mes = a.mes_controle && a.mes_controle > atual ? a.mes_controle : atual;
+  while (existentes.has(mes)) mes = somaMes(mes, 1);
+  return mes > somaMes(atual, 12) ? null : { mes, rotulo: rotuloMes(mes) };
 }
 
 async function pedirIA(env, sistema, pedido) {
@@ -689,6 +731,8 @@ async function rotear(request, env, partes) {
         db.prepare('DELETE FROM pausas WHERE aluno_id = ?').bind(aluno.id),
         db.prepare('DELETE FROM pacotes WHERE aluno_id = ?').bind(aluno.id),
         db.prepare('DELETE FROM aulas WHERE aluno_id = ?').bind(aluno.id),
+        db.prepare('DELETE FROM comprovantes WHERE aluno_id = ?').bind(aluno.id),
+        db.prepare('DELETE FROM pagadores WHERE aluno_id = ?').bind(aluno.id),
         db.prepare('DELETE FROM alunos WHERE id = ?').bind(aluno.id),
       ]);
       return json({ ok: true });
@@ -735,7 +779,10 @@ async function rotear(request, env, partes) {
         return json({ ok: true });
       }
       if (metodo === 'DELETE' && d4) {
-        await db.prepare('DELETE FROM pacotes WHERE id = ? AND aluno_id = ?').bind(Number(d4), aluno.id).run();
+        await db.batch([
+          db.prepare('DELETE FROM pacotes WHERE id = ? AND aluno_id = ?').bind(Number(d4), aluno.id),
+          db.prepare('DELETE FROM comprovantes WHERE pacote_id = ? AND aluno_id = ?').bind(Number(d4), aluno.id),
+        ]);
         return json({ ok: true });
       }
     }
@@ -747,33 +794,32 @@ async function rotear(request, env, partes) {
       const d = await corpo(request);
       const atual = await db.prepare('SELECT * FROM pagamentos WHERE aluno_id = ? AND mes = ?').bind(aluno.id, mes).first();
       const previsto = atual?.valor_previsto ?? aluno.valor ?? 0;
-      const vencimento = atual?.vencimento || vencimentoDe(mes, aluno.dia_venc);
 
       if (d.acao === 'pagar') {
         const data = d.data ? dataValida(d.data, 'data do recebimento') : dataISO(hoje);
         if (data > dataISO(hoje)) throw new Falha('A data do recebimento não pode ser no futuro.');
         const valor = d.valor == null ? previsto : inteiro(d.valor, 1, 10000000, 'valor recebido');
         if (!(valor > 0)) throw new Falha('Informe o valor recebido.');
-        await db
-          .prepare(
-            "INSERT INTO pagamentos (aluno_id, mes, status, valor_previsto, vencimento, recebido_em, valor_recebido, confirmado_em) VALUES (?, ?, 'confirmado', ?, ?, ?, ?, ?) " +
-              "ON CONFLICT (aluno_id, mes) DO UPDATE SET status = 'confirmado', recebido_em = excluded.recebido_em, valor_recebido = excluded.valor_recebido, confirmado_em = excluded.confirmado_em"
-          )
-          .bind(aluno.id, mes, previsto || valor, vencimento, data, valor, new Date().toISOString())
-          .run();
+        await comandoPagar(db, aluno, atual, mes, valor, data).run();
         return json({ ok: true });
       }
       if (!atual) throw new Falha('Mensalidade não encontrada.', 404);
       if (d.acao === 'reabrir' && mes > mesAtual) {
         // Desfazer um pagamento adiantado: o mês volta a não existir até chegar a vez dele.
-        await db.prepare('DELETE FROM pagamentos WHERE aluno_id = ? AND mes = ?').bind(aluno.id, mes).run();
+        await db.batch([
+          db.prepare('DELETE FROM pagamentos WHERE aluno_id = ? AND mes = ?').bind(aluno.id, mes),
+          db.prepare('DELETE FROM comprovantes WHERE aluno_id = ? AND mes = ?').bind(aluno.id, mes),
+        ]);
         return json({ ok: true });
       }
       if (d.acao === 'reabrir' || d.acao === 'dispensar') {
-        await db
-          .prepare('UPDATE pagamentos SET status = ?, recebido_em = NULL, valor_recebido = NULL, confirmado_em = NULL WHERE aluno_id = ? AND mes = ?')
-          .bind(d.acao === 'reabrir' ? 'aberto' : 'dispensado', aluno.id, mes)
-          .run();
+        // O comprovante usado na baixa desfeita volta a poder ser lançado.
+        await db.batch([
+          db
+            .prepare('UPDATE pagamentos SET status = ?, recebido_em = NULL, valor_recebido = NULL, confirmado_em = NULL WHERE aluno_id = ? AND mes = ?')
+            .bind(d.acao === 'reabrir' ? 'aberto' : 'dispensado', aluno.id, mes),
+          db.prepare('DELETE FROM comprovantes WHERE aluno_id = ? AND mes = ?').bind(aluno.id, mes),
+        ]);
         return json({ ok: true });
       }
       throw new Falha('Ação desconhecida.');
@@ -805,6 +851,93 @@ async function rotear(request, env, partes) {
     if (c === 'lembrado' && metodo === 'POST') {
       await db.prepare('UPDATE alunos SET lembrado_em = ? WHERE id = ?').bind(dataHoje(), aluno.id).run();
       return json({ ok: true });
+    }
+  }
+
+  // --- Comprovantes: baixa a partir do comprovante lido no celular do personal ---
+  // A imagem ou o PDF nunca chegam aqui: o celular lê e manda só os dados do pagamento.
+  if (a === 'comprovantes') {
+    const p = await personalLogado(request, db);
+
+    // Quem já pagou por algum aluno ("Maria paga pelo Lucas").
+    if (!b && metodo === 'GET') {
+      const r = await db
+        .prepare('SELECT g.nome, g.aluno_id FROM pagadores g JOIN alunos al ON al.id = g.aluno_id WHERE g.personal_id = ? AND al.personal_id = ?')
+        .bind(p.id, p.id)
+        .all();
+      return json({ pagadores: (r.results || []).map((x) => ({ nome: x.nome, alunoId: x.aluno_id })) });
+    }
+
+    // Este comprovante já deu baixa?
+    if (b === 'verificar' && metodo === 'POST') {
+      const chave = lerChave((await corpo(request)).chave);
+      if (!chave) throw new Falha('Comprovante inválido.');
+      return json({ duplicado: await comprovanteUsado(db, p.id, chave.hash) });
+    }
+
+    // Dá a baixa: mensalidade do mês escolhido ou pacote de aulas, mais o registro do comprovante.
+    if (!b && metodo === 'POST') {
+      const d = await corpo(request);
+      const aluno = await alunoDoPersonal(db, p, d.alunoId);
+      if (aluno.status === 'novo') throw new Falha('Confirme o cadastro deste aluno antes de dar baixa.');
+      const hoje = hojeBR();
+      const valor = inteiro(d.valor, 1, 10000000, 'valor recebido');
+      const data = dataValida(d.data, 'data do pagamento');
+      if (data > dataISO(hoje)) throw new Falha('A data do pagamento não pode ser no futuro.');
+      const chave = d.chave == null ? null : lerChave(d.chave);
+      if (d.chave != null && !chave) throw new Falha('Comprovante inválido.');
+      const pagador = d.lembrarPagador ? texto(d.lembrarPagador, 2, 80, 'nome de quem pagou') : null;
+      const agora = new Date().toISOString();
+      const comandos = [];
+      let mes = null;
+      let referente;
+
+      if (aluno.modo === 'pacote') {
+        if (!(aluno.pacote_aulas > 0)) throw new Falha('Defina as aulas do pacote deste aluno antes de dar baixa.');
+        comandos.push(...comandosPacote(db, aluno.id, aluno.pacote_aulas, valor, data));
+        referente = `pacote de ${aluno.pacote_aulas} aulas`;
+      } else {
+        mes = String(d.mes || '');
+        const mesAtual = chaveMes(hoje.ano, hoje.mes);
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(mes) || mes < '2000-01' || mes > somaMes(mesAtual, 12)) throw new Falha('Escolha o mês deste pagamento.');
+        const atual = await db.prepare('SELECT * FROM pagamentos WHERE aluno_id = ? AND mes = ?').bind(aluno.id, mes).first();
+        if (atual?.status === 'confirmado') {
+          const rotulo = rotuloMes(mes);
+          throw new Falha(`${rotulo.charAt(0).toUpperCase() + rotulo.slice(1)} de ${primeiroNome(aluno.nome)} já está pago. Escolha outro mês.`, 409);
+        }
+        comandos.push(comandoPagar(db, aluno, atual, mes, valor, data));
+        referente = rotuloMes(mes);
+      }
+
+      if (chave) {
+        comandos.push(
+          db
+            .prepare(
+              'INSERT INTO comprovantes (personal_id, aluno_id, hash, tipo, mes, pacote_id, valor, recebido_em, criado_em) VALUES (?, ?, ?, ?, ?, ' +
+                (mes ? 'NULL' : '(SELECT MAX(id) FROM pacotes WHERE aluno_id = ?)') + ', ?, ?, ?)'
+            )
+            .bind(...[p.id, aluno.id, chave.hash, chave.tipo, mes, ...(mes ? [] : [aluno.id]), valor, data, agora])
+        );
+      }
+      const nomeNormalizado = pagador ? normalizarNome(pagador) : '';
+      if (nomeNormalizado) {
+        comandos.push(
+          db
+            .prepare('INSERT INTO pagadores (personal_id, nome_normalizado, nome, aluno_id, criado_em) VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING')
+            .bind(p.id, nomeNormalizado, pagador, aluno.id, agora)
+        );
+      }
+
+      try {
+        await db.batch(comandos); // tudo ou nada: se o comprovante já foi usado, a baixa também não entra
+      } catch (e) {
+        if (chave?.tipo === 'e2e' && /UNIQUE/i.test(String(e?.message))) {
+          const duplicado = await comprovanteUsado(db, p.id, chave.hash);
+          throw new Falha('Este comprovante já foi lançado' + (duplicado ? ` para ${duplicado.alunoNome}.` : '.'), 409, { duplicado });
+        }
+        throw e;
+      }
+      return json({ ok: true, aluno: aluno.nome, referente });
     }
   }
 

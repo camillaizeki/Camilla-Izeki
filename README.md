@@ -11,6 +11,12 @@ O personal acompanha tudo em um painel e envia lembretes pelo próprio WhatsApp.
 - **Controle mensal:** cada aluno ativo ganha uma mensalidade por mês, com valor previsto e vencimento. No painel ela aparece como paga, pendente, atrasada ou em pausa.
 - **Recebimento:** o personal marca como pago em um toque, e pode ajustar a data e o valor. O faturamento usa a data real do recebimento, e cada mensalidade tem um único registro.
 - **Dashboard:** a tela Início mostra o recebido no mês, o previsto, o que falta vencer, o que está em atraso e a contagem de alunos ativos, pausados e inadimplentes, com navegação pelos últimos 12 meses.
+- **Ler comprovante:** o personal manda o comprovante que o aluno enviou (print da galeria, PDF do banco ou foto) e o app dá a baixa com um toque.
+  A leitura acontece no próprio celular: o PDF do banco é lido direto e as imagens passam por OCR (Tesseract.js); a imagem nunca vai para o servidor e não é guardada.
+  O app identifica o aluno pelo nome de quem pagou, pergunta quando há dois nomes parecidos ou quando ninguém tem aquele nome (o personal digita o aluno e pode pedir para lembrar que "Maria paga pelo Lucas"),
+  avisa se o valor é diferente da mensalidade ou se o Pix não foi para o personal, e barra o mesmo comprovante lançado duas vezes (só o hash do ID da transação Pix fica guardado).
+  Vale para mensalidade (mês em aberto mais antigo ou o próximo, adiantado) e para pacote de aulas. Dá para enviar vários comprovantes de uma vez.
+  No Android, o Renova.AI aparece no "Compartilhar" do WhatsApp depois de instalado na tela de início; no iPhone, o caminho é o botão "Ler comprovante".
 - **Pagamento adiantado:** dá para lançar um ou vários meses futuros de uma vez. O valor entra no faturamento do dia em que foi recebido, o mês futuro já aparece como pago, e a trilha do aluno só avança quando o mês chega.
 - **Pacote de aulas:** em vez de mensalidade, o aluno pode pagar por pacote (ex.: 10 aulas). O personal registra cada aula em um toque, o app mostra o saldo, avisa quando o pacote está acabando e conta o valor do pacote no faturamento do dia em que foi pago. Aulas dadas além do pacote ficam devendo, pelo valor de cada aula.
 - **Vencimento no autocadastro:** o aluno pode escolher o dia de pagamento no convite; o personal confirma ou ajusta.
@@ -56,6 +62,8 @@ Para testar no computador com um Mercado Pago simulado (todo pagamento é aprova
 
 - `public/`: telas (convite, aluno, painel) em HTML, CSS e JavaScript puro, sem etapa de build.
   `manifest.webmanifest`, `sw.js` e `icones/` fazem o painel funcionar como app instalável.
+  `comprovante/` tem a leitura de comprovantes (extração dos dados, OCR e PDF, tela e recebimento do compartilhamento),
+  que roda no celular; as bibliotecas de OCR e PDF vêm do jsDelivr só na primeira leitura.
 - `src/`: servidor (Cloudflare Workers). A entrada é `src/worker.js` e a API fica em `src/api.js`.
 - `lib/`: regras da jornada (meses, selos, sequência), mensalidades, geração do Pix, assinatura do app (`assinatura.js`),
   Mercado Pago (`mercadopago.js`) e estrutura do banco.

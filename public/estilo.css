@@ -378,3 +378,16 @@ body.admin #app { max-width: 980px; }
 .progresso > div { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--marca), var(--marca-forte)); transition: width 0.25s ease; }
 .alerta-saude { border: 1.5px solid #e5533d; background: #fff1ee; }
 .alerta-saude h3 { color: #b4321f; }
+
+/* Leitor de comprovantes (public/comprovante/leitor-ui.js): usa as cores do Renova.AI. */
+.rnv-cp {
+  --rnv-teal: var(--marca-forte);
+  --rnv-laranja: var(--brilho);
+  --rnv-texto: var(--tinta);
+  --rnv-suave: var(--suave);
+  --rnv-linha: var(--linha);
+  --rnv-fundo: var(--superficie);
+}
+.rnv-cp__titulo { font-family: var(--titulo); }
+.rnv-cp__btn { box-shadow: var(--sombra-botao); }
+.rnv-cp__btn--sec { box-shadow: none; }
